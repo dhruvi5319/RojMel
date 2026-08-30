@@ -12,7 +12,7 @@ function Icon({ label }: { label: string }) {
       type="submit"
       aria-label={label}
       disabled={pending}
-      className="rounded-lg p-2 text-muted transition hover:bg-danger-soft hover:text-danger disabled:opacity-40"
+      className="rounded-lg p-2 text-neutral-600 transition hover:bg-danger-100 hover:text-danger disabled:opacity-40"
     >
       <Trash2 className="size-4" aria-hidden />
     </button>

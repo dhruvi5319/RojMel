@@ -77,7 +77,7 @@ export default async function StaffPage({
         {staff.length === 0 ? (
           <Empty>{t('common.none')}</Empty>
         ) : (
-          <div className="flex flex-col divide-y divide-border">
+          <div className="flex flex-col divide-y divide-divider">
             {staff.map((m) => (
               <details key={m.id} className="group">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5">
@@ -85,12 +85,12 @@ export default async function StaffPage({
                     <div className="flex items-center gap-2 font-medium">
                       {m.name}
                       {m.name_gu ? (
-                        <span className="text-muted">({m.name_gu})</span>
+                        <span className="text-neutral-600">({m.name_gu})</span>
                       ) : null}
                       {!m.is_active ? <Badge>Left</Badge> : null}
-                      {m.pin ? <Badge tone="brand">PIN set</Badge> : null}
+                      {m.pin ? <Badge tone="accent">PIN set</Badge> : null}
                     </div>
-                    <div className="text-sm text-muted">
+                    <div className="text-sm text-neutral-600">
                       {[m.phone, m.joined_on ? formatDate(m.joined_on) : null]
                         .filter(Boolean)
                         .join(' · ') || '—'}
@@ -100,7 +100,7 @@ export default async function StaffPage({
                     {money(m.monthly_salary)}
                   </div>
                 </summary>
-                <div className="border-t border-border bg-surface-2 p-4">
+                <div className="border-t border-divider bg-neutral-200 p-4">
                   <EditStaffForm member={m} />
                 </div>
               </details>
@@ -140,7 +140,7 @@ export default async function StaffPage({
                         {t(`staff.type.${p.type}`)}
                       </Badge>
                     </Td>
-                    <Td className="text-muted">
+                    <Td className="text-neutral-600">
                       {p.period_month ? p.period_month.slice(0, 7) : '—'}
                     </Td>
                     <Td className="tabular text-right font-semibold">

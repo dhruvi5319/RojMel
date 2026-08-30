@@ -8,6 +8,13 @@ on a desktop in the office, in English or Gujarati.
 to tally. It is the ledger this app replaces, so it seemed the right thing to
 call it.
 
+## The look
+
+Warm paper ground, terracotta accent, Caprasimo headings — from the Claude
+Design project *Rojmel petrol pump mockups*. Every page lives behind one of four
+doors — **Today**, **Udhaar**, **Pump**, **More** — and a single date in the
+header governs the whole day.
+
 ## Who uses it
 
 | Role | Who | What they can do |
@@ -15,6 +22,10 @@ call it.
 | **Owner** | Father, brother | Everything, including purchase cost and margin. Only an owner approves the day. |
 | **Manager** | The manager | Billing, customers, prices, expenses, staff, bank deposits. **Cannot see purchase cost or margin.** |
 | **Counter** | Shared device at the pump | Fillers pick their name and record meter readings and udhaar slips. Sees no money beyond the slip being written. |
+
+**Who can do what** (under More) shows this split read straight off the RLS
+policies, so everyone can see the rules they work under. **Audit trail**
+(owner only) shows the approvals and reopenings recorded in `audit_log`.
 
 The permission split is enforced by Postgres row level security, not by hiding
 buttons — a manager who called the API directly still could not read a purchase

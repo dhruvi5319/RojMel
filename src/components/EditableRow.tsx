@@ -24,16 +24,16 @@ export function EditableRow({
 
   return (
     <>
-      <tr className={open ? 'bg-surface-2' : undefined}>
+      <tr className={open ? 'bg-neutral-200' : undefined}>
         {cells}
-        <td className="border-b border-border px-4 py-3 align-middle">
+        <td className="border-b border-divider px-4 py-3 align-middle">
           <div className="flex items-center justify-end gap-1">
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
               aria-label={label}
               aria-expanded={open}
-              className="rounded-lg p-2 text-muted transition hover:bg-brand-soft hover:text-brand"
+              className="rounded-lg p-2 text-neutral-600 transition hover:bg-accent-100 hover:text-accent"
             >
               {open ? (
                 <X className="size-4" aria-hidden />
@@ -47,7 +47,7 @@ export function EditableRow({
       </tr>
       {open ? (
         <tr>
-          <td colSpan={span + 1} className="border-b border-border bg-surface-2 p-4">
+          <td colSpan={span + 1} className="border-b border-divider bg-neutral-200 p-4">
             {form}
           </td>
         </tr>

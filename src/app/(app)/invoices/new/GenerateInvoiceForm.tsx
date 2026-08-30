@@ -45,7 +45,7 @@ export function GenerateInvoiceForm({
       </Field>
 
       {customer ? (
-        <Alert tone={customer.unbilled_amount > 0 ? 'brand' : 'accent'}>
+        <Alert tone={customer.unbilled_amount > 0 ? 'accent' : 'accent'}>
           {customer.unbilled_amount > 0 ? (
             <>
               {t('credit.unbilled')}: <strong>{money(customer.unbilled_amount)}</strong>{' '}

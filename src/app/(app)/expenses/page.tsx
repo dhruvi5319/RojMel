@@ -93,10 +93,10 @@ export default async function ExpensesPage({
                       <Td>
                         <span className="font-medium">{e.category}</span>
                         {e.description ? (
-                          <div className="text-sm text-muted">{e.description}</div>
+                          <div className="text-sm text-neutral-600">{e.description}</div>
                         ) : null}
                       </Td>
-                      <Td className="text-muted">{e.paid_to ?? '—'}</Td>
+                      <Td className="text-neutral-600">{e.paid_to ?? '—'}</Td>
                       <Td>{t(`mode.${e.mode}`)}</Td>
                       <Td className="tabular text-right font-semibold">
                         {money(e.amount)}

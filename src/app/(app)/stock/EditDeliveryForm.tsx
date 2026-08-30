@@ -45,7 +45,7 @@ export function EditDeliveryForm({
       </div>
 
       {canSeeCost ? (
-        <div className="rounded-lg border border-accent/30 bg-accent-soft p-4">
+        <div className="rounded-lg border border-accent/30 bg-accent-100 p-4">
           <div className="mb-3 text-sm font-semibold text-accent">
             {t('rep.ownerOnly')} — {t('stock.purchaseRate')}
           </div>
@@ -66,7 +66,7 @@ export function EditDeliveryForm({
           </div>
         </div>
       ) : (
-        <Alert tone="brand">{t('stock.ownerOnlyCost')}</Alert>
+        <Alert tone="accent">{t('stock.ownerOnlyCost')}</Alert>
       )}
 
       <Field label={t('common.notes')}>

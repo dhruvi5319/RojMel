@@ -170,7 +170,7 @@ export function ShiftEntry({
       {/* ------------------------------------------------------ readings -- */}
       <Card>
         <CardHeader title={t('shift.readings')} subtitle={t('shift.testHint')} />
-        <div className="flex flex-col divide-y divide-border">
+        <div className="flex flex-col divide-y divide-divider">
           {rows.map((r, i) => {
             const l = r.closing.trim() === '' ? 0 : n(r.closing) - n(r.opening) - n(r.test)
             const invalid = r.closing.trim() !== '' && l < 0
@@ -179,11 +179,11 @@ export function ShiftEntry({
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-base font-semibold">{r.name}</span>
-                    <Badge tone="brand">{r.fuel_name}</Badge>
+                    <Badge tone="accent">{r.fuel_name}</Badge>
                   </div>
                   <div className="tabular text-right">
                     <div className="font-semibold">{fmtLitres(Math.max(0, l))}</div>
-                    <div className="text-sm text-muted">
+                    <div className="text-sm text-neutral-600">
                       {money(Math.max(0, l) * n(r.rate))}
                     </div>
                   </div>
@@ -250,9 +250,9 @@ export function ShiftEntry({
           subtitle={`${t('dash.cashExpected')}: ${money(totals.expected)}`}
         />
         {staff.length === 0 ? (
-          <div className="p-4 text-muted">{t('common.none')}</div>
+          <div className="p-4 text-neutral-600">{t('common.none')}</div>
         ) : (
-          <div className="flex flex-col divide-y divide-border">
+          <div className="flex flex-col divide-y divide-divider">
             {handover.map((h, i) => (
               <div key={h.staff_id} className="grid grid-cols-3 gap-3 p-4 sm:grid-cols-4">
                 <div className="col-span-3 flex items-center font-medium sm:col-span-1">
@@ -291,7 +291,7 @@ export function ShiftEntry({
       {/* -------------------------------------------------------- totals -- */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label={t('common.litres')} value={fmtLitres(totals.litres)} />
-        <Stat label={t('day.meterSales')} value={money(totals.amount)} tone="brand" />
+        <Stat label={t('day.meterSales')} value={money(totals.amount)} tone="accent" />
         <Stat
           label={t('dash.creditGiven')}
           value={money(creditTotal)}
@@ -328,7 +328,7 @@ export function ShiftEntry({
       ) : null}
 
       {!locked ? (
-        <div className="no-print sticky bottom-0 flex flex-wrap gap-3 border-t border-border bg-background py-3">
+        <div className="no-print sticky bottom-0 flex flex-wrap gap-3 border-t border-divider bg-bg py-3">
           <Button type="button" size="lg" disabled={pending} onClick={() => save(false)}>
             <Save className="size-4" aria-hidden />
             {pending ? t('common.saving') : t('common.save')}

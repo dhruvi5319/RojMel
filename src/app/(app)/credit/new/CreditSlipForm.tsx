@@ -108,7 +108,7 @@ export function CreditSlipForm({
       </Field>
 
       {customer ? (
-        <Alert tone={overLimit ? 'danger' : 'brand'}>
+        <Alert tone={overLimit ? 'danger' : 'accent'}>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span>
               {t('cust.balance')}: <strong>{money(customer.balance)}</strong>
@@ -153,7 +153,7 @@ export function CreditSlipForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t('set.fuels')} required>
+        <Field label={t('common.fuel')} required>
           <Select
             name="fuel_type_id"
             required
@@ -241,7 +241,7 @@ export function CreditSlipForm({
         <Alert tone="accent">{t('set.noRate')}</Alert>
       ) : null}
 
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface-2 px-4 py-3">
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-divider bg-neutral-200 px-4 py-3">
         <span className="font-medium">{t('common.total')}</span>
         <span className="tabular text-xl font-semibold">
           {money(n(litres) * effectiveRate)}

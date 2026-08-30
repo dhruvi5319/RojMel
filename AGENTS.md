@@ -40,6 +40,23 @@ raising. Chain `.select('id')` and pass the result through `changed()` in
 `src/lib/actions.ts`; without it the app reports "Saved" while nothing happened.
 The same applies to the day lock, which refuses writes via a trigger.
 
+## The design
+
+The look comes from the Claude Design project *Rojmel petrol pump mockups*
+(`RojMel App - All Screens.dc.html`) and its "organic" design system. Tokens in
+`src/app/globals.css` are copied from that system's `styles.css` — warm ground,
+terracotta accent, olive for anything settled or tallied, Caprasimo headings on
+Figtree body. Retune colour there, not in components.
+
+The shell groups all thirteen pages behind **four doors** — Today, Udhaar, Pump,
+More (`src/lib/nav.ts`) — so someone opening this meets four choices, not
+thirteen. One date stepper in the header governs every dated page; individual
+pages must not grow their own date picker.
+
+Screens the mockups propose but the pump has not agreed to yet carry a
+`<Proposal />` tag: today's rhythm, needs-a-look, the audit trail and the
+permissions map.
+
 ## Conventions
 
 - Business dates are Indian — `today_ist()` in SQL, `todayIST()` in TS. The

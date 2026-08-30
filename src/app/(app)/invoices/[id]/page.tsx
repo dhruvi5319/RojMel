@@ -81,40 +81,40 @@ export default async function InvoicePage({
 
       <Card className="print-plain p-6 sm:p-8">
         {/* ------------------------------------------------------ header -- */}
-        <div className="flex flex-wrap items-start justify-between gap-6 border-b border-border pb-6">
+        <div className="flex flex-wrap items-start justify-between gap-6 border-b border-divider pb-6">
           <div>
             <h2 className="text-xl font-semibold">{station.legal_name || station.name}</h2>
             {station.address ? (
-              <p className="mt-1 max-w-xs text-sm text-muted">{station.address}</p>
+              <p className="mt-1 max-w-xs text-sm text-neutral-600">{station.address}</p>
             ) : null}
-            <p className="mt-1 text-sm text-muted">
+            <p className="mt-1 text-sm text-neutral-600">
               {[station.city, station.state, station.pincode].filter(Boolean).join(', ')}
             </p>
             {station.gstin ? (
               <p className="mt-1 text-sm">
-                <span className="text-muted">GSTIN: </span>
+                <span className="text-neutral-600">GSTIN: </span>
                 <span className="tabular">{station.gstin}</span>
               </p>
             ) : null}
             {station.phone ? (
-              <p className="text-sm tabular text-muted">{station.phone}</p>
+              <p className="text-sm tabular text-neutral-600">{station.phone}</p>
             ) : null}
           </div>
 
           <div className="text-right">
-            <div className="text-sm font-semibold tracking-wide text-muted uppercase">
+            <div className="text-sm font-semibold tracking-wide text-neutral-600 uppercase">
               {t('inv.document')}
             </div>
             <div className="tabular mt-1 text-lg font-semibold">
               {invoice.invoice_number}
             </div>
             <div className="mt-2 text-sm">
-              <span className="text-muted">{t('common.date')}: </span>
+              <span className="text-neutral-600">{t('common.date')}: </span>
               {formatDate(invoice.issue_date)}
             </div>
             {invoice.due_date ? (
               <div className="text-sm">
-                <span className="text-muted">{t('inv.dueDate')}: </span>
+                <span className="text-neutral-600">{t('inv.dueDate')}: </span>
                 {formatDate(invoice.due_date)}
               </div>
             ) : null}
@@ -126,27 +126,27 @@ export default async function InvoicePage({
 
         {/* ------------------------------------------------------- billed -- */}
         <div className="py-6">
-          <div className="text-sm font-semibold tracking-wide text-muted uppercase">
+          <div className="text-sm font-semibold tracking-wide text-neutral-600 uppercase">
             {t('inv.billedTo')}
           </div>
           <div className="mt-1 text-lg font-semibold">{customer?.name}</div>
           {customer?.address ? (
-            <p className="mt-0.5 max-w-sm text-sm text-muted">{customer.address}</p>
+            <p className="mt-0.5 max-w-sm text-sm text-neutral-600">{customer.address}</p>
           ) : null}
           {customer?.gstin ? (
             <p className="text-sm">
-              <span className="text-muted">GSTIN: </span>
+              <span className="text-neutral-600">GSTIN: </span>
               <span className="tabular">{customer.gstin}</span>
             </p>
           ) : null}
-          <p className="text-sm text-muted">
+          <p className="text-sm text-neutral-600">
             {t('inv.period')}: {formatDate(invoice.period_from)} –{' '}
             {formatDate(invoice.period_to)}
           </p>
         </div>
 
         {/* -------------------------------------------------------- slips -- */}
-        <div className="rounded-lg border border-border">
+        <div className="rounded-lg border border-divider">
           <TableWrap>
             <thead>
               <tr>
@@ -166,7 +166,7 @@ export default async function InvoicePage({
                     {s.vehicle_number ? <span>{s.vehicle_number}</span> : null}
                     {s.slip_number ? (
                       <span
-                        className={`text-sm text-muted${s.vehicle_number ? ' ml-2' : ''}`}
+                        className={`text-sm text-neutral-600${s.vehicle_number ? ' ml-2' : ''}`}
                       >
                         #{s.slip_number}
                       </span>
@@ -198,7 +198,7 @@ export default async function InvoicePage({
             {Number(invoice.round_off) !== 0 ? (
               <Line label={t('inv.roundOff')} value={money(invoice.round_off)} />
             ) : null}
-            <div className="mt-2 flex justify-between border-t border-border pt-3 text-lg font-semibold">
+            <div className="mt-2 flex justify-between border-t border-divider pt-3 text-lg font-semibold">
               <dt>{t('common.total')}</dt>
               <dd className="tabular">{money(invoice.total)}</dd>
             </div>
@@ -207,7 +207,7 @@ export default async function InvoicePage({
                 <div className="mt-2">
                   <Line label={t('nav.payments')} value={`− ${money(paid)}`} />
                 </div>
-                <div className="flex justify-between border-t border-border pt-2 font-semibold">
+                <div className="flex justify-between border-t border-divider pt-2 font-semibold">
                   <dt>{t('cust.balance')}</dt>
                   <dd className="tabular">{money(due)}</dd>
                 </div>
@@ -217,8 +217,8 @@ export default async function InvoicePage({
         </div>
 
         {payments.length > 0 ? (
-          <div className="mt-6 border-t border-border pt-4">
-            <div className="mb-2 text-sm font-semibold text-muted">
+          <div className="mt-6 border-t border-divider pt-4">
+            <div className="mb-2 text-sm font-semibold text-neutral-600">
               {t('pay.title')}
             </div>
             <ul className="flex flex-col gap-1 text-sm">
@@ -236,7 +236,7 @@ export default async function InvoicePage({
         ) : null}
 
         {invoice.notes ? (
-          <p className="mt-6 border-t border-border pt-4 text-sm text-muted">
+          <p className="mt-6 border-t border-divider pt-4 text-sm text-neutral-600">
             {invoice.notes}
           </p>
         ) : null}
@@ -258,7 +258,7 @@ export default async function InvoicePage({
 function Line({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between py-1">
-      <dt className="text-muted">{label}</dt>
+      <dt className="text-neutral-600">{label}</dt>
       <dd className="tabular">{value}</dd>
     </div>
   )

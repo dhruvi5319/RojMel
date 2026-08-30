@@ -175,7 +175,7 @@ export default async function CustomerPage({
                 {vehicles.map((v) => (
                   <tr key={v.id}>
                     <Td className="font-medium tabular">{v.vehicle_number}</Td>
-                    <Td className="text-muted">{v.driver_name ?? '—'}</Td>
+                    <Td className="text-neutral-600">{v.driver_name ?? '—'}</Td>
                     <Td className="text-right">
                       <DeleteButton
                         action={removeVehicle}
@@ -188,7 +188,7 @@ export default async function CustomerPage({
               </tbody>
             </TableWrap>
           )}
-          <div className="border-t border-border p-4">
+          <div className="border-t border-divider p-4">
             <ActionForm
               action={addVehicle}
               className="flex flex-col gap-3"
@@ -200,12 +200,12 @@ export default async function CustomerPage({
                   name="vehicle_number"
                   required
                   placeholder={t('cust.vehicleNo')}
-                  className="tabular w-full rounded-lg border border-border bg-surface px-3 py-2.5 uppercase outline-none focus:border-brand focus:ring-2 focus:ring-brand/25"
+                  className="tabular w-full rounded-lg border border-divider bg-surface px-3 py-2.5 uppercase outline-none focus:border-accent focus:ring-2 focus:ring-accent/25"
                 />
                 <input
                   name="driver_name"
                   placeholder={t('credit.driver')}
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 outline-none focus:border-brand focus:ring-2 focus:ring-brand/25"
+                  className="w-full rounded-lg border border-divider bg-surface px-3 py-2.5 outline-none focus:border-accent focus:ring-2 focus:ring-accent/25"
                 />
               </div>
               <div>
@@ -241,7 +241,7 @@ export default async function CustomerPage({
                         {inv.invoice_number}
                       </Link>
                     </Td>
-                    <Td className="text-sm text-muted">
+                    <Td className="text-sm text-neutral-600">
                       {formatDate(inv.period_from)} – {formatDate(inv.period_to)}
                     </Td>
                     <Td className="tabular text-right font-semibold">
@@ -256,7 +256,7 @@ export default async function CustomerPage({
                               ? 'neutral'
                               : inv.status === 'partly_paid'
                                 ? 'accent'
-                                : 'brand'
+                                : 'accent'
                         }
                       >
                         {t(`inv.${inv.status}`)}
@@ -294,11 +294,11 @@ export default async function CustomerPage({
                 {ledger.map((row, i) => (
                   <tr key={i}>
                     <Td className="whitespace-nowrap">{formatDate(row.date)}</Td>
-                    <Td className="text-muted">{row.detail || '—'}</Td>
+                    <Td className="text-neutral-600">{row.detail || '—'}</Td>
                     <Td className="tabular text-right">
                       {row.debit ? money(row.debit) : '—'}
                     </Td>
-                    <Td className="tabular text-right text-ok">
+                    <Td className="tabular text-right text-accent-2-700">
                       {row.credit ? money(row.credit) : '—'}
                     </Td>
                     <Td className="tabular text-right font-semibold">

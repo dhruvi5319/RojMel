@@ -36,7 +36,7 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="p-5">
+    <Card className="p-6">
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field label={t('auth.email')} required>
           <Input
@@ -60,7 +60,7 @@ export function LoginForm() {
 
         {error ? <Alert tone="danger">{error}</Alert> : null}
 
-        <Button type="submit" size="lg" disabled={busy}>
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>
           {busy ? t('auth.signingIn') : t('auth.signIn')}
         </Button>
       </form>

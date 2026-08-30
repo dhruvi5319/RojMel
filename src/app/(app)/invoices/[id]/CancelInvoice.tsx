@@ -14,7 +14,7 @@ export function CancelInvoice({ id }: { id: string }) {
           {t('inv.cancel')}
         </SubmitButton>
       </div>
-      <p className="text-sm text-muted">
+      <p className="text-sm text-neutral-600">
         Cancelling releases the slips so they can go on a corrected bill.
       </p>
     </ActionForm>

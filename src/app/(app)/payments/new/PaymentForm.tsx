@@ -76,7 +76,7 @@ export function PaymentForm({
       </Field>
 
       {customer ? (
-        <Alert tone="brand">
+        <Alert tone="accent">
           {t('cust.balance')}: <strong>{money(customer.balance)}</strong>
         </Alert>
       ) : null}

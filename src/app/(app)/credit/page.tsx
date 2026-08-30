@@ -11,7 +11,6 @@ import {
 import { DeleteButton } from '@/components/DeleteButton'
 import { EditableRow } from '@/components/EditableRow'
 import { EditSlipForm } from './EditSlipForm'
-import { DateNav } from '@/components/DateNav'
 import { deleteCreditSale } from './actions'
 
 export const dynamic = 'force-dynamic'
@@ -48,7 +47,6 @@ export default async function CreditPage({
         subtitle={formatDateLong(date)}
         action={
           <>
-            <DateNav date={date} />
             <LinkButton href={`/credit/new?date=${date}`}>
               <Plus className="size-4" aria-hidden />
               {t('credit.new')}
@@ -94,18 +92,18 @@ export default async function CreditPage({
                       {r.customers?.name ?? '—'}
                     </Link>
                     {r.slip_number ? (
-                      <div className="text-sm text-muted">#{r.slip_number}</div>
+                      <div className="text-sm text-neutral-600">#{r.slip_number}</div>
                     ) : null}
                   </Td>
                   <Td className="tabular">
                     {r.vehicle_number ?? '—'}
                     {r.driver_name ? (
-                      <div className="text-sm text-muted">{r.driver_name}</div>
+                      <div className="text-sm text-neutral-600">{r.driver_name}</div>
                     ) : null}
                   </Td>
                   <Td>{r.fuel_types?.name ?? '—'}</Td>
                   <Td className="tabular text-right">{litres(r.litres)}</Td>
-                  <Td className="tabular text-right text-muted">
+                  <Td className="tabular text-right text-neutral-600">
                     {Number(r.sale_rate).toFixed(2)}
                   </Td>
                   <Td className="tabular text-right font-semibold">

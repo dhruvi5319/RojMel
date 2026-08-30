@@ -9,12 +9,12 @@ export default function SetupPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col justify-center px-4 py-10">
       <div className="mb-6 flex items-center gap-3">
-        <span className="flex size-12 items-center justify-center rounded-xl bg-brand text-white">
+        <span className="flex size-12 items-center justify-center rounded-xl bg-accent text-white">
           <Fuel className="size-6" aria-hidden />
         </span>
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Rojmel</h1>
-          <p className="text-muted">One more step before the books open</p>
+          <p className="text-neutral-600">One more step before the books open</p>
         </div>
       </div>
 
@@ -34,26 +34,26 @@ export default function SetupPage() {
             </li>
             <li>
               In the SQL editor, run the files in{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-0.5">
+              <code className="rounded bg-neutral-200 px-1.5 py-0.5">
                 supabase/migrations
               </code>{' '}
               in order, 0001 through 0008.
             </li>
             <li>
-              Copy <code className="rounded bg-surface-2 px-1.5 py-0.5">.env.local.example</code>{' '}
-              to <code className="rounded bg-surface-2 px-1.5 py-0.5">.env.local</code> and
+              Copy <code className="rounded bg-neutral-200 px-1.5 py-0.5">.env.local.example</code>{' '}
+              to <code className="rounded bg-neutral-200 px-1.5 py-0.5">.env.local</code> and
               paste in the project URL and anon key from Settings → API.
             </li>
             <li>
               Run{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-0.5">
+              <code className="rounded bg-neutral-200 px-1.5 py-0.5">
                 supabase/setup/create_pump.sql
               </code>{' '}
               to create your pump and make the first owner account.
             </li>
             <li>Restart the dev server.</li>
           </ol>
-          <p className="mt-5 text-sm text-muted">
+          <p className="mt-5 text-sm text-neutral-600">
             The full walkthrough is in README.md.
           </p>
         </Card>

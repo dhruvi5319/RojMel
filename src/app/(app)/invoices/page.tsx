@@ -16,9 +16,9 @@ interface Row extends Invoice {
   payments: { amount: number }[]
 }
 
-export const STATUS_TONE: Record<InvoiceStatus, 'ok' | 'brand' | 'accent' | 'neutral'> = {
+export const STATUS_TONE: Record<InvoiceStatus, 'ok' | 'accent' | 'accent' | 'neutral'> = {
   paid: 'ok',
-  issued: 'brand',
+  issued: 'accent',
   partly_paid: 'accent',
   draft: 'neutral',
   cancelled: 'neutral',
@@ -88,7 +88,7 @@ export default async function InvoicesPage() {
                       >
                         {inv.invoice_number}
                       </Link>
-                      <div className="text-sm text-muted">
+                      <div className="text-sm text-neutral-600">
                         {formatDate(inv.issue_date)}
                       </div>
                     </Td>
@@ -100,7 +100,7 @@ export default async function InvoicesPage() {
                         {inv.customers?.name ?? '—'}
                       </Link>
                     </Td>
-                    <Td className="text-sm text-muted whitespace-nowrap">
+                    <Td className="text-sm text-neutral-600 whitespace-nowrap">
                       {formatDate(inv.period_from)} – {formatDate(inv.period_to)}
                     </Td>
                     <Td className="tabular text-right font-semibold">

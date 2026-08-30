@@ -6,7 +6,6 @@ import { getT } from '@/lib/i18n/server'
 import { formatDateLong, litres, money, todayIST } from '@/lib/format'
 import type { Shift } from '@/lib/database.types'
 import { Badge, Card, CardHeader, Empty, PageHeader, Td, TableWrap, Th } from '@/components/ui'
-import { DateNav } from '@/components/DateNav'
 import { OpenShiftForm } from './OpenShiftForm'
 
 export const dynamic = 'force-dynamic'
@@ -43,7 +42,7 @@ export default async function ShiftsPage({
 
   const statusTone = {
     open: 'accent',
-    submitted: 'brand',
+    submitted: 'accent',
     approved: 'ok',
   } as const
 
@@ -52,7 +51,6 @@ export default async function ShiftsPage({
       <PageHeader
         title={t('shift.title')}
         subtitle={formatDateLong(date)}
-        action={<DateNav date={date} />}
       />
 
       <Card>
@@ -92,7 +90,7 @@ export default async function ShiftsPage({
                     <Td className="text-right">
                       <Link
                         href={`/shifts/${s.id}`}
-                        className="inline-flex items-center gap-1 font-medium text-brand hover:underline"
+                        className="inline-flex items-center gap-1 font-medium text-accent hover:underline"
                       >
                         {t('shift.readings')}
                         <ArrowRight className="size-4" aria-hidden />

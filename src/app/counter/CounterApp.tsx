@@ -9,7 +9,7 @@ import { litres as fmtLitres, money } from '@/lib/format'
 import type {
   FuelType, NozzleState, Shift, Staff, UserRole, Vehicle,
 } from '@/lib/database.types'
-import { LanguageToggle } from '@/components/LanguageToggle'
+import { LanguageSeg } from '@/components/AppNav'
 import { Alert, Badge, Button, Card, Field, NumberInput, Select, Input } from '@/components/ui'
 import { counterReading, counterSlip, ensureShift } from './actions'
 
@@ -84,18 +84,20 @@ export function CounterApp({
 
   /* ------------------------------------------------------------ header -- */
   const header = (
-    <header className="flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3">
+    <header className="flex items-center justify-between gap-3 bg-surface px-4 py-3">
       <div className="flex items-center gap-2.5">
-        <span className="flex size-9 items-center justify-center rounded-lg bg-brand text-white">
+        <span className="grid size-9 place-items-center rounded-full bg-accent text-bg">
           <Fuel className="size-5" aria-hidden />
         </span>
         <div>
-          <div className="font-semibold leading-tight">{stationName}</div>
-          <div className="text-xs text-muted">{t('counter.title')}</div>
+          <div className="truncate font-[family-name:var(--font-heading)] text-[16px] leading-tight">
+            {stationName}
+          </div>
+          <div className="text-xs text-neutral-600">{t('counter.title')}</div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <LanguageToggle />
+      <div className="flex shrink-0 items-center gap-2">
+        <LanguageSeg compact />
         {who ? (
           <button
             type="button"
@@ -103,10 +105,10 @@ export function CounterApp({
               setWho(null)
               setView('pick')
             }}
-            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium"
+            className="inline-flex max-w-[9rem] items-center gap-1.5 rounded-full border border-divider px-3 py-2 text-[13px] font-semibold"
           >
-            <UserRound className="size-4" aria-hidden />
-            {nameOf(who)}
+            <UserRound className="size-4 shrink-0" aria-hidden />
+            <span className="truncate">{nameOf(who)}</span>
           </button>
         ) : null}
         {role !== 'counter' ? (
@@ -114,7 +116,7 @@ export function CounterApp({
             type="button"
             onClick={() => router.push('/')}
             aria-label={t('nav.dashboard')}
-            className="rounded-lg border border-border p-2"
+            className="rounded-lg border border-divider p-2"
           >
             <LogOut className="size-4" aria-hidden />
           </button>
@@ -133,7 +135,7 @@ export function CounterApp({
           who?.pin ? (
             <div>
               <h1 className="mb-1 text-2xl font-semibold">{nameOf(who)}</h1>
-              <p className="mb-5 text-muted">{t('counter.enterPin')}</p>
+              <p className="mb-5 text-neutral-600">{t('counter.enterPin')}</p>
               <Card className="p-5">
                 <input
                   type="password"
@@ -145,7 +147,7 @@ export function CounterApp({
                     setPin(e.target.value)
                     setPinError(false)
                   }}
-                  className="tabular w-full rounded-lg border border-border bg-surface px-4 py-4 text-center text-3xl tracking-[0.5em] outline-none focus:border-brand"
+                  className="tabular w-full rounded-lg border border-divider bg-surface px-4 py-4 text-center text-3xl tracking-[0.5em] outline-none focus:border-accent"
                 />
                 {pinError ? (
                   <div className="mt-3">
@@ -183,9 +185,9 @@ export function CounterApp({
                       key={s.id}
                       type="button"
                       onClick={() => choose(s)}
-                      className="flex flex-col items-center gap-2 rounded-xl border border-border bg-surface px-3 py-6 text-center text-lg font-medium transition hover:border-brand hover:bg-brand-soft"
+                      className="flex flex-col items-center gap-2.5 rounded-[var(--radius-card)] bg-surface px-3 py-7 text-center text-[17px] font-semibold transition hover:bg-accent-100"
                     >
-                      <span className="flex size-12 items-center justify-center rounded-full bg-brand-soft text-brand">
+                      <span className="grid size-12 place-items-center rounded-full bg-accent-200 text-accent-800">
                         <UserRound className="size-6" aria-hidden />
                       </span>
                       {nameOf(s)}
@@ -282,7 +284,7 @@ export function CounterApp({
         {/* -------------------------------------------------------- done -- */}
         {view === 'done' ? (
           <div className="py-10 text-center">
-            <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-ok-soft text-ok">
+            <div className="mx-auto mb-5 grid size-16 place-items-center rounded-full bg-accent-2-300 text-accent-2-900">
               <Check className="size-8" aria-hidden />
             </div>
             <h1 className="text-2xl font-semibold">{t('counter.done')}</h1>
@@ -321,9 +323,9 @@ function BigButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-center gap-3 rounded-xl border border-border bg-surface px-4 py-10 text-lg font-semibold transition hover:border-brand hover:bg-brand-soft"
+      className="flex flex-col items-center gap-3 rounded-[var(--radius-card)] bg-surface px-4 py-11 text-[18px] font-semibold transition hover:bg-accent-100"
     >
-      <Icon className="size-8 text-brand" aria-hidden />
+      <Icon className="size-8 text-accent" aria-hidden />
       {label}
     </button>
   )
@@ -415,7 +417,7 @@ function SlipForm({
           </Select>
         </Field>
 
-        <Field label={t('set.fuels')} required>
+        <Field label={t('common.fuel')} required>
           <div className="grid grid-cols-2 gap-2">
             {(priced.length > 0 ? priced : fuels).map((f) => (
               <button
@@ -425,10 +427,10 @@ function SlipForm({
                   setFuelId(f.id)
                   setNozzleId('')
                 }}
-                className={`rounded-lg border px-3 py-3 text-lg font-medium transition ${
+                className={`rounded-full px-3 py-3 text-[17px] font-semibold transition ${
                   fuelId === f.id
-                    ? 'border-brand bg-brand-soft text-brand'
-                    : 'border-border bg-surface'
+                    ? 'bg-accent text-bg'
+                    : 'bg-surface text-neutral-700 hover:bg-accent-100'
                 }`}
               >
                 {f.name}
@@ -492,7 +494,7 @@ function SlipForm({
           </Select>
         </Field>
 
-        <div className="flex items-center justify-between rounded-lg bg-surface-2 px-4 py-3">
+        <div className="flex items-center justify-between rounded-full bg-surface px-5 py-3">
           <span className="font-medium">
             {t('common.rate')} ₹{Number(rate).toFixed(2)}
           </span>
@@ -582,10 +584,10 @@ function ReadingForm({
                 key={s.name}
                 type="button"
                 onClick={() => setShiftChoice(s.name)}
-                className={`rounded-lg border px-2 py-3 font-medium transition ${
+                className={`rounded-full px-2 py-3 font-semibold transition ${
                   shiftChoice === s.name
-                    ? 'border-brand bg-brand-soft text-brand'
-                    : 'border-border bg-surface'
+                    ? 'bg-accent text-bg'
+                    : 'bg-surface text-neutral-700 hover:bg-accent-100'
                 }`}
               >
                 {t(s.key)}
@@ -640,7 +642,7 @@ function ReadingForm({
           />
         </Field>
 
-        <div className="flex items-center justify-between rounded-lg bg-surface-2 px-4 py-3">
+        <div className="flex items-center justify-between rounded-full bg-surface px-5 py-3">
           <span className="tabular font-medium">{fmtLitres(Math.max(0, l))}</span>
           <span className="tabular text-xl font-semibold">
             {money(Math.max(0, l) * rate)}
@@ -648,7 +650,7 @@ function ReadingForm({
         </div>
 
         {existingShift ? (
-          <Badge tone="brand">
+          <Badge tone="accent">
             {existingShift.name} — {t(`shift.${existingShift.status}`)}
           </Badge>
         ) : null}
@@ -688,7 +690,7 @@ function BackBar({ label, onBack }: { label: string; onBack: () => void }) {
         type="button"
         onClick={onBack}
         aria-label="Back"
-        className="rounded-lg border border-border bg-surface p-2.5"
+        className="rounded-lg border border-divider bg-surface p-2.5"
       >
         <ArrowLeft className="size-5" aria-hidden />
       </button>

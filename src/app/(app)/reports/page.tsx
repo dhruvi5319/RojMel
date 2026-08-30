@@ -67,7 +67,7 @@ export default async function ReportsPage({
           label={t('rep.salesValue')}
           value={money(margin?.sales_value ?? 0)}
           hint={litres(margin?.litres_sold ?? 0)}
-          tone="brand"
+          tone="accent"
         />
         <Stat
           label={t('rep.purchaseCost')}
@@ -105,7 +105,7 @@ export default async function ReportsPage({
         </div>
       ) : (
         <div className="mt-4">
-          <Alert tone="brand">
+          <Alert tone="accent">
             {t('rep.grossProfit')} on litres sold:{' '}
             <strong>{money(grossProfit ?? 0)}</strong> — before{' '}
             {money(margin.operating_expenses)} of running costs.
@@ -137,7 +137,7 @@ export default async function ReportsPage({
                     <Td className="tabular text-right font-semibold">
                       {money(f.sales_value)}
                     </Td>
-                    <Td className="tabular text-right text-muted">
+                    <Td className="tabular text-right text-neutral-600">
                       {f.avg_rate != null ? `₹${f.avg_rate.toFixed(2)}` : '—'}
                     </Td>
                   </tr>
@@ -186,7 +186,7 @@ export default async function ReportsPage({
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-surface-2 font-semibold">
+                <tr className="bg-neutral-200 font-semibold">
                   <Td>{t('common.total')}</Td>
                   <Td className="tabular text-right">
                     {litres(traded.reduce((s, d) => s + Number(d.litres_sold), 0))}

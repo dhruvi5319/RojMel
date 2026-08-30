@@ -18,7 +18,7 @@ export function MonthPicker({ month }: { month: string }) {
         q.set('month', e.target.value)
         router.push(`${pathname}?${q}`)
       }}
-      className="tabular rounded-lg border border-border bg-surface px-3 py-2 text-[15px] outline-none focus:border-brand focus:ring-2 focus:ring-brand/25"
+      className="tabular rounded-lg border border-divider bg-surface px-3 py-2 text-[15px] outline-none focus:border-accent focus:ring-2 focus:ring-accent/25"
     />
   )
 }

@@ -65,7 +65,7 @@ export default async function CustomersPage({
           name="q"
           defaultValue={q}
           placeholder={t('common.search')}
-          className="w-full max-w-sm rounded-lg border border-border bg-surface px-3 py-2.5 outline-none focus:border-brand focus:ring-2 focus:ring-brand/25"
+          className="w-full max-w-sm rounded-lg border border-divider bg-surface px-3 py-2.5 outline-none focus:border-accent focus:ring-2 focus:ring-accent/25"
         />
       </form>
 
@@ -96,7 +96,7 @@ export default async function CustomersPage({
                         {c.name}
                       </Link>
                       {c.phone ? (
-                        <div className="text-sm text-muted">{c.phone}</div>
+                        <div className="text-sm text-neutral-600">{c.phone}</div>
                       ) : null}
                       {!c.is_active ? (
                         <span className="ml-2">
@@ -116,18 +116,18 @@ export default async function CustomersPage({
                       {c.unbilled_amount > 0 ? (
                         <span>
                           {money(c.unbilled_amount)}
-                          <span className="ml-1 text-sm text-muted">
+                          <span className="ml-1 text-sm text-neutral-600">
                             ({c.unbilled_slips})
                           </span>
                         </span>
                       ) : (
-                        <span className="text-muted">—</span>
+                        <span className="text-neutral-600">—</span>
                       )}
                     </Td>
-                    <Td className="tabular text-right text-muted">
+                    <Td className="tabular text-right text-neutral-600">
                       {c.credit_limit > 0 ? money(c.credit_limit) : '—'}
                     </Td>
-                    <Td className="text-muted">{formatDate(c.last_sale_date)}</Td>
+                    <Td className="text-neutral-600">{formatDate(c.last_sale_date)}</Td>
                   </tr>
                 )
               })}

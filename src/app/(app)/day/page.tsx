@@ -8,7 +8,6 @@ import type { DayClosing, DaySummary } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th,
 } from '@/components/ui'
-import { DateNav } from '@/components/DateNav'
 import { PrintButton } from '@/components/PrintButton'
 import { ApproveDayForm, ReopenDayForm, SubmitDayForm } from './DayForms'
 
@@ -50,7 +49,7 @@ export default async function DayPage({
   const short = day?.collection_short ?? 0
   const cashDiff = (day?.counted_cash ?? 0) - (day?.expected_cash ?? 0)
 
-  const tone = { draft: 'neutral', submitted: 'brand', approved: 'ok' } as const
+  const tone = { draft: 'neutral', submitted: 'accent', approved: 'ok' } as const
 
   return (
     <>
@@ -59,7 +58,6 @@ export default async function DayPage({
         subtitle={formatDateLong(date)}
         action={
           <>
-            <DateNav date={date} />
             <PrintButton />
           </>
         }
@@ -68,8 +66,8 @@ export default async function DayPage({
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Badge tone={tone[status]}>{t(`shift.${status === 'draft' ? 'open' : status}`)}</Badge>
         {approved && closing?.approver ? (
-          <span className="inline-flex items-center gap-1.5 text-sm text-muted">
-            <CheckCircle2 className="size-4 text-ok" aria-hidden />
+          <span className="inline-flex items-center gap-1.5 text-sm text-neutral-600">
+            <CheckCircle2 className="size-4 text-accent-2-700" aria-hidden />
             {t('day.approvedBy')} {closing.approver.full_name}
           </span>
         ) : null}
@@ -83,7 +81,7 @@ export default async function DayPage({
             label={t('day.meterSales')}
             value={money(day?.meter_sales ?? 0)}
             hint={litres(day?.litres_sold ?? 0)}
-            tone="brand"
+            tone="accent"
           />
           <Stat label={t('dash.creditGiven')} value={money(day?.credit_sales ?? 0)} />
           <Stat label={t('day.counterSales')} value={money(day?.counter_sales ?? 0)} />
@@ -165,11 +163,11 @@ export default async function DayPage({
         ) : approved ? (
           <Card>
             <div className="flex items-center gap-3 p-5">
-              <Lock className="size-5 text-muted" aria-hidden />
+              <Lock className="size-5 text-neutral-600" aria-hidden />
               <div>
                 <div className="font-medium">{t('day.locked')}</div>
                 {closing?.owner_remarks ? (
-                  <p className="mt-1 text-sm text-muted">{closing.owner_remarks}</p>
+                  <p className="mt-1 text-sm text-neutral-600">{closing.owner_remarks}</p>
                 ) : null}
               </div>
             </div>
@@ -245,11 +243,11 @@ function Line({
     <tr>
       <Td>
         <span className={strong ? 'font-semibold' : ''}>{label}</span>
-        {hint ? <div className="text-sm text-muted">{hint}</div> : null}
+        {hint ? <div className="text-sm text-neutral-600">{hint}</div> : null}
       </Td>
       <Td
         className={`tabular text-right ${strong ? 'font-semibold' : ''} ${
-          tone === 'ok' ? 'text-ok' : tone === 'danger' ? 'text-danger' : ''
+          tone === 'ok' ? 'text-accent-2-700' : tone === 'danger' ? 'text-danger' : ''
         }`}
       >
         {value}

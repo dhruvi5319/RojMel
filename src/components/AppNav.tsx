@@ -1,140 +1,159 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { useState } from 'react'
-import {
-  BadgeIndianRupee, Banknote, ChartNoAxesCombined, Droplets, Fuel,
-  Gauge, Menu, Notebook, Receipt, Settings, Truck, Users, Wallet, X,
-} from 'lucide-react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useTransition } from 'react'
 import { useT } from '@/lib/i18n/client'
-import type { DictKey } from '@/lib/i18n/dict'
+import { useLang } from '@/lib/i18n/client'
+import { LANGS } from '@/lib/i18n/dict'
+import { setLanguage } from '@/app/actions/language'
+import { addDays, todayIST } from '@/lib/format'
+import { TABS, isDatedPath, tabForPath, visibleItems } from '@/lib/nav'
 import type { UserRole } from '@/lib/database.types'
 
-type Item = { href: string; key: DictKey; icon: typeof Gauge; ownerOnly?: boolean }
+/* ── the four doors ─────────────────────────────────────────────────────── */
 
-const GROUPS: { items: Item[] }[] = [
-  {
-    items: [
-      { href: '/', key: 'nav.dashboard', icon: Gauge },
-      { href: '/day', key: 'nav.day', icon: Notebook },
-      { href: '/shifts', key: 'nav.shifts', icon: Fuel },
-    ],
-  },
-  {
-    items: [
-      { href: '/credit', key: 'nav.credit', icon: Truck },
-      { href: '/customers', key: 'nav.customers', icon: Users },
-      { href: '/invoices', key: 'nav.invoices', icon: Receipt },
-      { href: '/payments', key: 'nav.payments', icon: BadgeIndianRupee },
-    ],
-  },
-  {
-    items: [
-      { href: '/stock', key: 'nav.stock', icon: Droplets },
-      { href: '/expenses', key: 'nav.expenses', icon: Wallet },
-      { href: '/staff', key: 'nav.staff', icon: Users },
-      { href: '/bank', key: 'nav.bank', icon: Banknote },
-    ],
-  },
-  {
-    items: [
-      { href: '/reports', key: 'nav.reports', icon: ChartNoAxesCombined, ownerOnly: true },
-      { href: '/settings', key: 'nav.settings', icon: Settings },
-    ],
-  },
-]
-
-function useIsActive() {
-  const pathname = usePathname()
-  return (href: string) =>
-    href === '/' ? pathname === '/' : pathname.startsWith(href)
-}
-
-function NavLinks({ role, onNavigate }: { role: UserRole; onNavigate?: () => void }) {
+export function TabBar({ role }: { role: UserRole }) {
   const t = useT()
-  const isActive = useIsActive()
+  const pathname = usePathname()
+  const active = tabForPath(pathname)
 
   return (
-    <nav className="flex flex-col gap-5">
-      {GROUPS.map((group, i) => {
-        const items = group.items.filter((it) => !it.ownerOnly || role === 'owner')
+    <div className="no-print flex gap-1 overflow-x-auto px-4 sm:px-6">
+      {TABS.map((tab) => {
+        const items = visibleItems(tab.key, role)
         if (items.length === 0) return null
+        const on = active === tab.key
         return (
-          <div key={i} className="flex flex-col gap-0.5">
-            {items.map(({ href, key, icon: Icon }) => {
-              const active = isActive(href)
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  onClick={onNavigate}
-                  aria-current={active ? 'page' : undefined}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[15px] font-medium transition ${
-                    active
-                      ? 'bg-brand-soft text-brand'
-                      : 'text-muted hover:bg-surface-2 hover:text-foreground'
-                  }`}
-                >
-                  <Icon className="size-[18px] shrink-0" aria-hidden />
-                  <span className="truncate">{t(key)}</span>
-                </Link>
-              )
-            })}
-          </div>
+          <Link
+            key={tab.key}
+            href={items[0].href}
+            aria-current={on ? 'page' : undefined}
+            className={`rounded-t-[18px] px-5 pt-3 pb-3.5 text-[14.5px] font-semibold whitespace-nowrap transition ${
+              on ? 'bg-bg text-text' : 'text-neutral-600 hover:text-text'
+            }`}
+          >
+            {t(tab.label)}
+          </Link>
         )
       })}
-    </nav>
+    </div>
   )
 }
 
-/** Desktop: a permanent rail beside the content. */
-export function NavRail({ role }: { role: UserRole }) {
+/* ── the pages behind whichever door is open ────────────────────────────── */
+
+export function PillBar({ role }: { role: UserRole }) {
+  const t = useT()
+  const pathname = usePathname()
+  const params = useSearchParams()
+  const items = visibleItems(tabForPath(pathname), role)
+  const date = params.get('date')
+
   return (
-    <aside className="no-print hidden w-60 shrink-0 border-r border-border bg-surface px-3 py-5 lg:block">
-      <NavLinks role={role} />
-    </aside>
+    <div className="no-print flex flex-wrap gap-1.5 px-4 pt-4 sm:px-6">
+      {items.map((item) => {
+        const on =
+          item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+        // Carry the chosen day across the pages it governs.
+        const href = item.dated && date ? `${item.href}?date=${date}` : item.href
+        return (
+          <Link
+            key={item.href}
+            href={href}
+            aria-current={on ? 'page' : undefined}
+            className={`rounded-full px-4 py-[7px] text-[12.5px] font-semibold transition ${
+              on
+                ? 'bg-accent text-bg'
+                : 'bg-surface text-neutral-700 hover:bg-accent-100'
+            }`}
+          >
+            {t(item.key)}
+          </Link>
+        )
+      })}
+    </div>
   )
 }
 
-/** Phone: a sheet, because the forecourt is a one-handed place. */
-export function NavSheet({ role }: { role: UserRole }) {
-  const [open, setOpen] = useState(false)
+/* ── one date governs the whole day ─────────────────────────────────────── */
+
+export function DateStepper() {
+  const pathname = usePathname()
+  const params = useSearchParams()
+  const router = useRouter()
+  const today = todayIST()
+  const date = params.get('date') || today
+
+  if (!isDatedPath(pathname)) return null
+
+  function go(next: string) {
+    const q = new URLSearchParams(params)
+    if (next === today) q.delete('date')
+    else q.set('date', next)
+    const qs = q.toString()
+    router.push(qs ? `${pathname}?${qs}` : pathname)
+  }
+
+  const label = new Date(`${date}T12:00:00Z`).toLocaleDateString('en-IN', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'UTC',
+  })
 
   return (
-    <>
+    <div className="no-print flex items-center gap-2 rounded-full bg-bg py-1 pr-1.5 pl-3.5">
       <button
         type="button"
-        onClick={() => setOpen(true)}
-        aria-label="Open menu"
-        aria-expanded={open}
-        className="no-print rounded-lg border border-border bg-surface p-2 lg:hidden"
+        onClick={() => go(addDays(date, -1))}
+        aria-label="Previous day"
+        className="cursor-pointer px-1 text-[15px] leading-none font-bold text-neutral-600 hover:text-text"
       >
-        <Menu className="size-5" aria-hidden />
+        ‹
       </button>
+      <span className="text-[13px] font-semibold whitespace-nowrap">{label}</span>
+      <button
+        type="button"
+        onClick={() => go(addDays(date, 1))}
+        disabled={date >= today}
+        aria-label="Next day"
+        className="cursor-pointer px-1 text-[15px] leading-none font-bold text-neutral-600 hover:text-text disabled:opacity-35"
+      >
+        ›
+      </button>
+    </div>
+  )
+}
 
-      {open ? (
-        <div className="no-print fixed inset-0 z-50 lg:hidden">
-          <button
-            aria-label="Close menu"
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setOpen(false)}
-          />
-          <div className="absolute inset-y-0 left-0 w-[17rem] overflow-y-auto bg-surface px-3 py-4 shadow-xl">
-            <div className="mb-3 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close menu"
-                className="rounded-lg p-2 hover:bg-surface-2"
-              >
-                <X className="size-5" aria-hidden />
-              </button>
-            </div>
-            <NavLinks role={role} onNavigate={() => setOpen(false)} />
-          </div>
-        </div>
-      ) : null}
-    </>
+/* ── language ───────────────────────────────────────────────────────────── */
+
+export function LanguageSeg({ compact = false }: { compact?: boolean }) {
+  const lang = useLang()
+  const [pending, startTransition] = useTransition()
+
+  return (
+    <div
+      className="no-print inline-flex overflow-hidden rounded-full border border-divider"
+      role="group"
+      aria-label="Language"
+    >
+      {LANGS.map((l) => (
+        <button
+          key={l.code}
+          type="button"
+          onClick={() => startTransition(() => setLanguage(l.code))}
+          disabled={pending}
+          aria-pressed={lang === l.code}
+          className={`cursor-pointer px-3 py-[6px] text-[12px] leading-[1.5] transition ${
+            lang === l.code
+              ? 'bg-accent text-bg'
+              : 'text-neutral-700 hover:bg-[color-mix(in_srgb,var(--color-text)_7%,transparent)]'
+          }`}
+        >
+          {compact ? (l.code === 'en' ? 'EN' : 'ગુ') : l.label}
+        </button>
+      ))}
+    </div>
   )
 }

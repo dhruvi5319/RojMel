@@ -71,7 +71,7 @@ export default async function ShiftPage({
 
       {locked ? (
         <div className="mb-4">
-          <Alert tone="brand">{t('day.locked')}</Alert>
+          <Alert tone="accent">{t('day.locked')}</Alert>
         </div>
       ) : null}
 

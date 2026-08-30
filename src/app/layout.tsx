@@ -1,13 +1,23 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono, Noto_Sans_Gujarati } from 'next/font/google'
+import { Caprasimo, Figtree, Noto_Sans_Gujarati } from 'next/font/google'
 import './globals.css'
 import { LanguageProvider } from '@/lib/i18n/client'
 import { getLang } from '@/lib/i18n/server'
 
-const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
-const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] })
+// Caprasimo carries the headings, Figtree the body — the pairing the design
+// system is built on.
+const caprasimo = Caprasimo({
+  variable: '--font-caprasimo',
+  subsets: ['latin'],
+  weight: '400',
+})
+const figtree = Figtree({
+  variable: '--font-figtree',
+  subsets: ['latin'],
+  weight: ['400', '600', '700'],
+})
 
-// Without a Gujarati face the toggle renders as boxes on most Windows machines.
+// Neither Latin face has Gujarati glyphs, so ગુજરાતી needs its own.
 const gujarati = Noto_Sans_Gujarati({
   variable: '--font-gujarati',
   subsets: ['gujarati'],
@@ -22,7 +32,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#0f6b4f',
+  themeColor: '#c67139',
   width: 'device-width',
   initialScale: 1,
 }
@@ -37,7 +47,7 @@ export default async function RootLayout({
   return (
     <html
       lang={lang}
-      className={`${geistSans.variable} ${geistMono.variable} ${gujarati.variable} h-full antialiased`}
+      className={`${caprasimo.variable} ${figtree.variable} ${gujarati.variable} h-full antialiased`}
     >
       <body className="min-h-full">
         <LanguageProvider lang={lang}>{children}</LanguageProvider>

@@ -16,7 +16,7 @@ export function Collapsible({
   const [open, setOpen] = useState(defaultOpen)
 
   return (
-    <div className="no-print rounded-xl border border-border bg-surface">
+    <div className="no-print rounded-xl border border-divider bg-surface">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -24,7 +24,7 @@ export function Collapsible({
         className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left font-semibold"
       >
         <span className="inline-flex items-center gap-2">
-          <Plus className="size-4 text-brand" aria-hidden />
+          <Plus className="size-4 text-accent" aria-hidden />
           {title}
         </span>
         <ChevronDown
@@ -32,7 +32,7 @@ export function Collapsible({
           aria-hidden
         />
       </button>
-      {open ? <div className="border-t border-border p-4 sm:p-5">{children}</div> : null}
+      {open ? <div className="border-t border-divider p-4 sm:p-5">{children}</div> : null}
     </div>
   )
 }

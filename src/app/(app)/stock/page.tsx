@@ -69,58 +69,58 @@ export default async function StockPage() {
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
                   <div className="font-semibold">{tk.name}</div>
-                  <Badge tone="brand">{tk.fuel_name}</Badge>
+                  <Badge tone="accent">{tk.fuel_name}</Badge>
                 </div>
                 <div className="text-right">
                   <div className="tabular text-xl font-semibold">
                     {litres(tk.book_stock_litres)}
                   </div>
-                  <div className="text-sm text-muted">
+                  <div className="text-sm text-neutral-600">
                     {t('stock.capacity')}: {litres(tk.capacity_litres)}
                   </div>
                 </div>
               </div>
 
               <div
-                className="h-3 w-full overflow-hidden rounded-full bg-surface-2"
+                className="h-3 w-full overflow-hidden rounded-full bg-neutral-200"
                 role="img"
                 aria-label={`${pct.toFixed(0)} percent full`}
               >
                 <div
-                  className={`h-full rounded-full ${pct < 20 ? 'bg-danger' : 'bg-brand'}`}
+                  className={`h-full rounded-full ${pct < 20 ? 'bg-danger' : 'bg-accent'}`}
                   style={{ width: `${pct}%` }}
                 />
               </div>
 
               <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <dt className="text-muted">{t('stock.delivery')}</dt>
+                  <dt className="text-neutral-600">{t('stock.delivery')}</dt>
                   <dd className="tabular font-medium">{litres(tk.litres_received)}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted">{t('rep.sales')}</dt>
+                  <dt className="text-neutral-600">{t('rep.sales')}</dt>
                   <dd className="tabular font-medium">{litres(tk.litres_sold)}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted">{t('stock.dip')}</dt>
+                  <dt className="text-neutral-600">{t('stock.dip')}</dt>
                   <dd className="tabular font-medium">
                     {tk.last_dip_litres != null ? litres(tk.last_dip_litres) : '—'}
                     {tk.last_dip_date ? (
-                      <span className="ml-1 text-muted">
+                      <span className="ml-1 text-neutral-600">
                         ({formatDate(tk.last_dip_date)})
                       </span>
                     ) : null}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-muted">{t('stock.variance')}</dt>
+                  <dt className="text-neutral-600">{t('stock.variance')}</dt>
                   <dd
                     className={`tabular font-medium ${
                       variance == null
                         ? ''
                         : Math.abs(variance) > 50
                           ? 'text-danger'
-                          : 'text-ok'
+                          : 'text-accent-2-700'
                     }`}
                   >
                     {variance == null
@@ -190,7 +190,7 @@ export default async function StockPage() {
                       <Td className="tabular">
                         {d.tanker_number ?? '—'}
                         {d.staff?.name ? (
-                          <div className="text-sm text-muted">{d.staff.name}</div>
+                          <div className="text-sm text-neutral-600">{d.staff.name}</div>
                         ) : null}
                       </Td>
                       <Td className="tabular text-right font-semibold">

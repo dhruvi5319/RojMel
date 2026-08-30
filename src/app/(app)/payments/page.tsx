@@ -100,7 +100,7 @@ export default async function PaymentsPage() {
                   <Td>
                     {t(`mode.${p.mode}`)}
                     {p.reference ? (
-                      <div className="text-sm text-muted">{p.reference}</div>
+                      <div className="text-sm text-neutral-600">{p.reference}</div>
                     ) : null}
                   </Td>
                   <Td className="tabular text-right font-semibold">{money(p.amount)}</Td>

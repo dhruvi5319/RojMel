@@ -93,13 +93,13 @@ export default async function BankPage() {
                       <Td>
                         <span className="font-medium">{d.bank_name}</span>
                         {d.account_last4 ? (
-                          <span className="ml-2 tabular text-sm text-muted">
+                          <span className="ml-2 tabular text-sm text-neutral-600">
                             ••{d.account_last4}
                           </span>
                         ) : null}
                       </Td>
-                      <Td className="tabular text-muted">{d.slip_reference ?? '—'}</Td>
-                      <Td className="text-muted">{d.profiles?.full_name ?? '—'}</Td>
+                      <Td className="tabular text-neutral-600">{d.slip_reference ?? '—'}</Td>
+                      <Td className="text-neutral-600">{d.profiles?.full_name ?? '—'}</Td>
                       <Td className="tabular text-right font-semibold">
                         {money(d.amount)}
                       </Td>

@@ -9,7 +9,7 @@ import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, TableWrap, Td, Th,
 } from '@/components/ui'
 import { Collapsible } from '@/components/Collapsible'
-import { LanguageToggle } from '@/components/LanguageToggle'
+import { LanguageSeg } from '@/components/AppNav'
 import {
   FuelForm, NozzleForm, RateForm, StationForm, TankForm,
 } from './SettingsForms'
@@ -59,9 +59,9 @@ export default async function SettingsPage() {
     <>
       <PageHeader title={t('set.title')} />
 
-      <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+      <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-divider bg-surface px-4 py-3">
         <span className="font-medium">{t('set.language')}</span>
-        <LanguageToggle />
+        <LanguageSeg />
       </div>
 
       {/* -------------------------------------------------------- station -- */}
@@ -109,13 +109,13 @@ export default async function SettingsPage() {
                     <Td>
                       <span className="font-medium">{f.name}</span>
                       {f.name_gu ? (
-                        <span className="ml-2 text-muted">{f.name_gu}</span>
+                        <span className="ml-2 text-neutral-600">{f.name_gu}</span>
                       ) : null}
                     </Td>
                     <Td className="tabular text-right font-semibold">
                       {p ? `₹${Number(p.sale_rate).toFixed(2)}` : '—'}
                     </Td>
-                    <Td className="text-muted">
+                    <Td className="text-neutral-600">
                       {p ? formatDate(p.effective_from) : '—'}
                     </Td>
                   </tr>
@@ -124,7 +124,7 @@ export default async function SettingsPage() {
             </tbody>
           </TableWrap>
         )}
-        <div className="flex flex-col gap-3 border-t border-border p-4">
+        <div className="flex flex-col gap-3 border-t border-divider p-4">
           {fuels.length > 0 ? (
             <Collapsible title={t('set.newRate')} defaultOpen>
               <RateForm fuels={fuels} />
@@ -157,7 +157,7 @@ export default async function SettingsPage() {
                   <Td className="font-medium">{tk.name}</Td>
                   <Td>{tk.fuel_types?.name ?? '—'}</Td>
                   <Td className="tabular text-right">{litres(tk.capacity_litres)}</Td>
-                  <Td className="tabular text-right text-muted">
+                  <Td className="tabular text-right text-neutral-600">
                     {litres(tk.opening_stock_litres)}
                     {tk.opening_stock_date ? (
                       <div className="text-sm">{formatDate(tk.opening_stock_date)}</div>
@@ -168,7 +168,7 @@ export default async function SettingsPage() {
             </tbody>
           </TableWrap>
         )}
-        <div className="border-t border-border p-4">
+        <div className="border-t border-divider p-4">
           {fuels.length === 0 ? (
             <Alert tone="accent">Add a fuel before adding a tank.</Alert>
           ) : (
@@ -208,7 +208,7 @@ export default async function SettingsPage() {
             </tbody>
           </TableWrap>
         )}
-        <div className="border-t border-border p-4">
+        <div className="border-t border-divider p-4">
           {tanks.length === 0 ? (
             <Alert tone="accent">Add a tank before adding a nozzle.</Alert>
           ) : (
@@ -239,12 +239,12 @@ export default async function SettingsPage() {
                 <Td>
                   <span className="font-medium">{p.full_name}</span>
                   {p.id === session.profile.id ? (
-                    <span className="ml-2 text-sm text-muted">(you)</span>
+                    <span className="ml-2 text-sm text-neutral-600">(you)</span>
                   ) : null}
                 </Td>
-                <Td className="text-muted">{p.phone ?? '—'}</Td>
+                <Td className="text-neutral-600">{p.phone ?? '—'}</Td>
                 <Td className="text-right">
-                  <Badge tone={p.role === 'owner' ? 'brand' : 'neutral'}>
+                  <Badge tone={p.role === 'owner' ? 'accent' : 'neutral'}>
                     {t(`role.${p.role}`)}
                   </Badge>
                 </Td>
@@ -253,8 +253,8 @@ export default async function SettingsPage() {
           </tbody>
         </TableWrap>
         {!isOwner(session) ? (
-          <div className="border-t border-border p-4">
-            <Alert tone="brand">Only an owner can change who has access.</Alert>
+          <div className="border-t border-divider p-4">
+            <Alert tone="accent">Only an owner can change who has access.</Alert>
           </div>
         ) : null}
       </Card>
@@ -265,7 +265,7 @@ export default async function SettingsPage() {
 function Detail({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-sm text-muted">{label}</dt>
+      <dt className="text-sm text-neutral-600">{label}</dt>
       <dd className="font-medium">{value || '—'}</dd>
     </div>
   )
