@@ -1,26 +1,87 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------- theme --
+   Deep petrol green as the primary, amber for anything that needs the
+   owner's eye. Type is a step larger than a typical dashboard: this is read
+   on a phone, outdoors, by people who are not looking for small print.      */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f6f7f5;
+  --surface: #ffffff;
+  --surface-2: #f0f2ef;
+  --border: #dfe3dc;
+  --foreground: #14201a;
+  --muted: #5d6b62;
+  --brand: #0f6b4f;
+  --brand-strong: #0a4f3a;
+  --brand-soft: #e3f2ec;
+  --accent: #b45309;
+  --accent-soft: #fdf1e0;
+  --danger: #b42318;
+  --danger-soft: #fdeceb;
+  --ok: #15803d;
+  --ok-soft: #e7f6ec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: #0d1310;
+    --surface: #151d18;
+    --surface-2: #1b2620;
+    --border: #2a3830;
+    --foreground: #e8efe9;
+    --muted: #9aab9f;
+    --brand: #3fbf90;
+    --brand-strong: #63d6ab;
+    --brand-soft: #163025;
+    --accent: #e0a458;
+    --accent-soft: #2e2416;
+    --danger: #f97066;
+    --danger-soft: #331a19;
+    --ok: #4ade80;
+    --ok-soft: #14301f;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --font-sans: var(--font-geist-sans), var(--font-gujarati), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+html { -webkit-text-size-adjust: 100%; }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  /* Gujarati sits taller than Latin; a little extra leading keeps the
+     matras from colliding with the line above. */
+  line-height: 1.55;
+}
+
+/* Figures line up in columns when they share a width. */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Stop iOS zooming the page when a number field is focused. */
+input, select, textarea, button { font-size: 16px; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; color: #000; }
+  .print-plain { border: none !important; box-shadow: none !important; }
 }
