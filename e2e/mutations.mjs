@@ -473,6 +473,34 @@ await check('money log: sold against how the money came', async () => {
   }
 })
 
+await check('calendar: pick a date and get that day', async () => {
+  // the header carries a real date control on every dated page
+  await page.goto(`${BASE}/moneylog`, { waitUntil: 'load' })
+  const picker = page.locator('header input[type=date]')
+  if ((await picker.count()) === 0) throw new Error('no calendar control in the header')
+
+  await page.goto(`${BASE}/daybook`, { waitUntil: 'load' })
+  await page.waitForTimeout(700)
+  const t2 = await body()
+  for (const w of ['DAYS TRADED', 'MON', 'SUN']) {
+    if (!t2.includes(w)) throw new Error(`calendar missing "${w}"`)
+  }
+
+  // a day that traded is a link into that day's accounts
+  const day = page.locator('a[href^="/moneylog?date="]').first()
+  if ((await day.count()) === 0) throw new Error('no traded day to open')
+  const href = await day.getAttribute('href')
+  await day.click()
+  await page.waitForURL(/\/moneylog\?date=/, { timeout: 15000 })
+  if (!page.url().endsWith(href)) {
+    throw new Error(`opened ${page.url()} instead of ${href}`)
+  }
+  await page.waitForTimeout(500)
+  if (!(await body()).includes('WHAT WAS SOLD')) {
+    throw new Error('that day\'s accounts did not open')
+  }
+})
+
 console.log('\n=== PAYMENTS ===')
 await check('payments: record one', async () => {
   await page.goto(`${BASE}/payments/new`)

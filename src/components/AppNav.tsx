@@ -112,7 +112,19 @@ export function DateStepper() {
       >
         ‹
       </button>
-      <span className="text-[13px] font-semibold whitespace-nowrap">{label}</span>
+      {/* A native date input: one tap gives the phone's own calendar, and the
+          label stays readable while it is closed. */}
+      <label className="relative cursor-pointer">
+        <span className="text-[13px] font-semibold whitespace-nowrap">{label}</span>
+        <input
+          type="date"
+          value={date}
+          max={today}
+          aria-label={label}
+          onChange={(e) => e.target.value && go(e.target.value)}
+          className="absolute inset-0 cursor-pointer opacity-0"
+        />
+      </label>
       <button
         type="button"
         onClick={() => go(addDays(date, 1))}

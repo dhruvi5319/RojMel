@@ -435,5 +435,25 @@ select assert_eq(record_shift_variance('11111111-0000-0000-0000-0000000000c1', '
                  500.00::numeric, 'and is recorded against that shift');
 rollback;
 
+
+-- ------------------------------------- the day book, one row per trading day --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+select assert_eq((select total_sale from v_day_book where business_date = current_date),
+                 71674.00::numeric, 'the day book totals the day');
+select assert_eq((select udhaar from v_day_book where business_date = current_date),
+                 26760.00::numeric, 'and carries the udhaar');
+select assert_eq((select difference from v_day_book where business_date = current_date),
+                 0.00::numeric, 'and whether it balanced');
+select assert_eq((select status from v_day_book where business_date = current_date),
+                 'submitted', 'and how far it has got');
+select assert_eq((select count(*) from day_book_month(current_date)), 1::bigint,
+                 'a month lists only the days that traded');
+select assert_eq((select count(*) from day_book_month((current_date - interval '2 months')::date)),
+                 0::bigint, 'a month with no trading is empty, not an error');
+rollback;
+
 \echo ''
 \echo '================  ALL ASSERTIONS PASSED  ================'

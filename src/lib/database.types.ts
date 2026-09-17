@@ -628,3 +628,14 @@ export interface ShiftMoney {
   /** positive means the money is short of what the meters say left the pump */
   difference: number
 }
+
+/** view: v_day_book / rpc: day_book_month — one row per day the pump traded */
+export interface DayBookEntry {
+  business_date: string
+  shifts: number
+  total_sale: number
+  accounted: number
+  difference: number
+  status: DayStatus
+  approved: boolean
+}

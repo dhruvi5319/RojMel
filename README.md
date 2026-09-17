@@ -72,6 +72,12 @@ The two totals must meet. Where they don't, the difference is recorded against
 that shift with a note, so the question "who was short, and why" has an answer
 a month later.
 
+**Calendar** (Today → Calendar) is every day the pump has traded. The month is
+laid out with what each day sold, ringed for today, coloured for approved,
+waiting, or out of balance — pick a date and that day's accounts open. The date
+in the header is a date control too, so any day is one tap away from any dated
+page.
+
 ## How the money works
 
 The nozzle meter counts every litre that leaves the pump, whoever paid and

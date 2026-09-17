@@ -98,8 +98,10 @@ junk drawer holding both the fuel and the money going out, and nobody hunting
 for the bank deposit looks under Pump. Each door's contents must match its name;
 if one starts holding two ideas, split it rather than widening the label.
 
-One date stepper in the header governs every dated page; individual pages must
-not grow their own date picker.
+One date control in the header governs every dated page — arrows for yesterday
+and tomorrow, and the label itself is a date input so any day is one tap away.
+Individual pages must not grow their own date picker. `/daybook` lays the month
+out as a calendar over `v_day_book`; picking a date opens that day's money log.
 
 The `PROPOSAL` badges from the design review are gone from the running app — it
 is in daily use and the word means nothing to a pump owner.

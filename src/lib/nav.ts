@@ -30,6 +30,7 @@ export const TABS: { key: TabKey; label: DictKey; items: NavItem[] }[] = [
       { href: '/credit', key: 'nav.credit', dated: true },
       { href: '/moneylog', key: 'nav.money', dated: true },
       { href: '/day', key: 'nav.day', dated: true },
+      { href: '/daybook', key: 'nav.daybook', dated: true },
     ],
   },
   {
