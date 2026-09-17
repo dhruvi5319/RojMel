@@ -6,7 +6,7 @@ import { getT } from '@/lib/i18n/server'
 import { formatDate, money } from '@/lib/format'
 import type { Invoice, InvoiceStatus } from '@/lib/database.types'
 import {
-  Badge, Card, Empty, LinkButton, PageHeader, Stat, TableWrap, Td, Th,
+  Alert, Badge, Card, Empty, LinkButton, PageHeader, Stat, TableWrap, Td, Th,
 } from '@/components/ui'
 
 export const dynamic = 'force-dynamic'
@@ -29,11 +29,18 @@ export default async function InvoicesPage() {
   const t = await getT()
   const supabase = await createClient()
 
-  const { data } = await supabase
-    .from('invoices')
-    .select('*, customers(name), payments(amount)')
-    .order('issue_date', { ascending: false })
-    .limit(200)
+  const [{ data }, { count: waiting }] = await Promise.all([
+    supabase
+      .from('invoices')
+      .select('*, customers(name), payments(amount)')
+      .order('issue_date', { ascending: false })
+      .limit(200),
+    // Is there a single slip anywhere still waiting for a bill?
+    supabase
+      .from('credit_sales')
+      .select('id', { count: 'exact', head: true })
+      .is('invoice_id', null),
+  ])
 
   const rows = (data ?? []) as unknown as Row[]
   const live = rows.filter((r) => r.status !== 'cancelled')
@@ -48,10 +55,12 @@ export default async function InvoicesPage() {
       <PageHeader
         title={t('inv.title')}
         action={
-          <LinkButton href="/invoices/new">
-            <Plus className="size-4" aria-hidden />
-            {t('inv.new')}
-          </LinkButton>
+          (waiting ?? 0) > 0 ? (
+            <LinkButton href="/invoices/new">
+              <Plus className="size-4" aria-hidden />
+              {t('inv.new')}
+            </LinkButton>
+          ) : null
         }
       />
 
@@ -60,6 +69,12 @@ export default async function InvoicesPage() {
         <Stat label={t('nav.payments')} value={money(received)} tone="ok" />
         <Stat label={t('cust.balance')} value={money(billed - received)} tone="accent" />
       </div>
+
+      {(waiting ?? 0) === 0 ? (
+        <div className="mb-5">
+          <Alert tone="ok">{t('inv.nothingToBill')}</Alert>
+        </div>
+      ) : null}
 
       <Card>
         {rows.length === 0 ? (

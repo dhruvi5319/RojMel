@@ -474,18 +474,59 @@ await check('staff: EDIT the salary payment', async () => {
 })
 
 console.log('\n=== INVOICE ===')
-await check('invoices: generate', async () => {
-  await page.goto(`${BASE}/invoices/new?customer=`)
+await check('bills: the amount follows the dates, and the button knows', async () => {
+  await page.goto(`${BASE}/invoices/new`, { waitUntil: 'load' })
   await selectContaining('select[name=customer_id]', `Transport ${STAMP}`)
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
-  await page.fill('input[name=period_from]', today)
-  await page.fill('input[name=period_to]', today)
-  await page.locator('button[type=submit]').last().click()
+  await page.waitForTimeout(500)
+
+  // choosing a customer fills the dates that cover their unbilled slips
+  const from = await page.locator('input[name=period_from]').inputValue()
+  if (!from) throw new Error('the dates were not filled in for me')
+  const withAmount = await body()
+  if (!/FOR THESE DATES/.test(withAmount)) throw new Error('no amount shown for the dates')
+
+  // move the range somewhere empty: the amount goes, and so does the button
+  await page.fill('input[name=period_from]', '2020-01-01')
+  await page.fill('input[name=period_to]', '2020-01-02')
+  await page.waitForTimeout(400)
+  if (!/No slips left to bill/.test(await body())) {
+    throw new Error('an empty range still claimed an amount')
+  }
+  if (!(await page.locator('button[type=submit]').first().isDisabled())) {
+    throw new Error('the bill could still be made with nothing in it')
+  }
+
+  // back to their dates, and make it
+  await page.fill('input[name=period_from]', from)
+  await page.fill('input[name=period_to]', await page.locator('input[name=period_to]').inputValue() || from)
+  await page.fill('input[name=period_to]', from)
+  await page.waitForTimeout(400)
+  await page.locator('button[type=submit]').first().click()
   await page.waitForURL(/\/invoices\/[0-9a-f-]{36}/, { timeout: 15000 })
   await reflects('BILLED TO')
 })
 
+await check('bills: no button for a customer with nothing waiting', async () => {
+  // the slip just billed above leaves this customer with nothing outstanding
+  await page.goto(`${BASE}/customers`, { waitUntil: 'load' })
+  await page.locator('a', { hasText: `Transport ${STAMP}` }).first().click()
+  await page.waitForURL(/\/customers\/[0-9a-f-]{36}/, { timeout: 15000 })
+  await page.waitForTimeout(400)
+  const t2 = await body()
+  const unbilledNow = /Not billed yet[\s\S]{0,40}₹0\.00|Not billed yet[\s\S]{0,20}—/.test(t2)
+  if (unbilledNow && (await page.locator('a[href^="/invoices/new"]').count()) !== 0) {
+    throw new Error('offered a bill to a customer with nothing to bill')
+  }
+})
+
 await check('bills: a printable page with nothing but the bill', async () => {
+  // find a bill of our own rather than relying on where the last check ended
+  await page.goto(`${BASE}/invoices`, { waitUntil: 'load' })
+  const bill = page.locator('a[href^="/invoices/"]').filter({ hasNotText: 'Make' }).first()
+  await bill.click()
+  await page.waitForURL(/\/invoices\/[0-9a-f-]{36}/, { timeout: 15000 })
+  await page.waitForTimeout(500)
+
   // the bill screen must offer a way off the screen
   const t2 = await body()
   if (!/Print \/ Save as PDF/.test(t2)) throw new Error('no print or save option on a bill')

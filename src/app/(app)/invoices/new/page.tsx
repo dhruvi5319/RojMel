@@ -1,10 +1,9 @@
 import { requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { monthEnd, monthStart, todayIST } from '@/lib/format'
 import type { CustomerBalance } from '@/lib/database.types'
-import { Card, LinkButton, PageHeader } from '@/components/ui'
-import { GenerateInvoiceForm } from './GenerateInvoiceForm'
+import { Alert, Card, LinkButton, PageHeader } from '@/components/ui'
+import { GenerateInvoiceForm, type UnbilledSlip } from './GenerateInvoiceForm'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,18 +17,23 @@ export default async function NewInvoicePage({
   const supabase = await createClient()
   const preselected = (await searchParams).customer ?? ''
 
-  const { data } = await supabase
-    .from('v_customer_balances')
-    .select('*')
-    .eq('is_active', true)
-    .order('unbilled_amount', { ascending: false })
+  const [customersRes, slipsRes] = await Promise.all([
+    supabase
+      .from('v_customer_balances')
+      .select('*')
+      .eq('is_active', true)
+      .order('unbilled_amount', { ascending: false }),
+    // Only what is not yet on a bill, so the form can total any date range
+    // without another round trip. Unbilled slips are by nature a short list.
+    supabase
+      .from('credit_sales')
+      .select('customer_id, business_date, amount')
+      .is('invoice_id', null)
+      .order('business_date'),
+  ])
 
-  // Default to last month, which is when a monthly bill is normally raised.
-  const today = todayIST()
-  const lastMonth = `${today.slice(0, 8)}01`
-  const prev = new Date(`${lastMonth}T12:00:00Z`)
-  prev.setUTCMonth(prev.getUTCMonth() - 1)
-  const prevIso = prev.toISOString().slice(0, 10)
+  const customers = (customersRes.data ?? []) as CustomerBalance[]
+  const unbilled = (slipsRes.data ?? []) as UnbilledSlip[]
 
   return (
     <>
@@ -41,14 +45,18 @@ export default async function NewInvoicePage({
           </LinkButton>
         }
       />
-      <Card className="p-5">
-        <GenerateInvoiceForm
-          customers={(data ?? []) as CustomerBalance[]}
-          preselected={preselected}
-          defaultFrom={monthStart(prevIso)}
-          defaultTo={monthEnd(prevIso)}
-        />
-      </Card>
+
+      {unbilled.length === 0 ? (
+        <Alert tone="ok">{t('inv.nothingToBill')}</Alert>
+      ) : (
+        <Card className="p-5">
+          <GenerateInvoiceForm
+            customers={customers.filter((c) => c.unbilled_amount > 0)}
+            unbilled={unbilled}
+            preselected={preselected}
+          />
+        </Card>
+      )}
     </>
   )
 }

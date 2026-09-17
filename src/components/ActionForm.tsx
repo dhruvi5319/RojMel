@@ -18,15 +18,23 @@ export function SubmitButton({
   children,
   variant,
   size = 'lg',
+  disabled = false,
 }: {
   children?: React.ReactNode
   variant?: 'primary' | 'secondary' | 'danger'
   size?: 'sm' | 'md' | 'lg'
+  /** For a form that has nothing to submit yet. */
+  disabled?: boolean
 }) {
   const t = useT()
   const { pending } = useFormStatus()
   return (
-    <Button type="submit" variant={variant} size={size} disabled={pending}>
+    <Button
+      type="submit"
+      variant={variant}
+      size={size}
+      disabled={pending || disabled}
+    >
       {pending ? t('common.saving') : (children ?? t('common.save'))}
     </Button>
   )

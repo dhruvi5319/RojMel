@@ -130,10 +130,17 @@ export default async function CustomerPage({
               <Plus className="size-4" aria-hidden />
               {t('credit.new')}
             </LinkButton>
-            <LinkButton href={`/invoices/new?customer=${id}`} variant="secondary" size="sm">
-              <Receipt className="size-4" aria-hidden />
-              {t('inv.new')}
-            </LinkButton>
+            {/* Nothing to bill, no button — it would only lead to a dead end. */}
+            {(balance?.unbilled_amount ?? 0) > 0 ? (
+              <LinkButton
+                href={`/invoices/new?customer=${id}`}
+                variant="secondary"
+                size="sm"
+              >
+                <Receipt className="size-4" aria-hidden />
+                {t('inv.new')}
+              </LinkButton>
+            ) : null}
             {/* A real file, for the accountant who asks for the ledger. */}
             <LinkButton
               href={`/customers/${id}/statement`}
