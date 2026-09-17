@@ -48,6 +48,24 @@ apart — `ordered_litres` indented, `invoice_litres` on the challan, and `litre
 actually decanted. Only the last moves stock. The tanker's own dip is taken once
 with the product at rest, before decanting.
 
+**The rate is set once, for the pump, on Today.** Every figure downstream is
+priced off it — litres times rate is the day's sale, and the day's sale minus
+udhaar is the cash the fillers owe. So the shift form *shows* the rate and never
+asks for it: two nozzles disagreeing would make a filler look short for someone
+else's typo. `v_fuel_rates` carries the rate in force and whether it was set
+today.
+
+**The equipment is the owner's; the price is the manager's.** `fuel_types`,
+`tanks`, `nozzles` and `cng_dispensers` are owner-write, back-office-read, and
+a trigger refuses to delete one that has already priced a sale — retire it with
+`is_active`. `fuel_prices` stays writable by the manager, because pump prices
+move daily.
+
+**Every write is audited by a trigger, not by the app.** `audit_write()` is
+attached to every business table, so a new screen cannot forget to log. Updates
+store only the fields that moved, as `[was, now]`; PINs are redacted; only an
+owner can read `v_audit` back.
+
 **Rates are append-only.** Changing a price inserts a new `fuel_prices` row with
 its own `effective_from`. Never update an existing rate.
 

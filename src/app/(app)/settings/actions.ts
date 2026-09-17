@@ -171,3 +171,139 @@ export async function toggleNozzle(
   revalidatePath('/shifts')
   return { ok: true }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   The pump's equipment — fuels, tanks, nozzles. Owner-only to change, because
+   editing one silently changes what every future reading means. Row level
+   security says the same thing again in the database; these checks only make
+   the refusal readable.
+   ══════════════════════════════════════════════════════════════════════ */
+
+async function ownerOnly(): Promise<FormState | null> {
+  const session = await getSession()
+  if (session?.profile.role !== 'owner') {
+    return { error: 'Only an owner can change the pump\'s equipment.' }
+  }
+  return null
+}
+
+export async function updateFuelType(
+  _prev: FormState,
+  data: FormData,
+): Promise<FormState> {
+  const denied = await ownerOnly()
+  if (denied) return denied
+
+  const supabase = await createClient()
+  const outcome = changed(
+    await supabase
+      .from('fuel_types')
+      .update({
+        name: String(data.get('name') ?? '').trim(),
+        name_gu: String(data.get('name_gu') ?? '').trim() || null,
+        sort_order: Number(data.get('sort_order') ?? 0),
+        is_active: data.get('is_active') === 'on',
+      })
+      .eq('id', String(data.get('id')))
+      .select('id'),
+    'this fuel',
+  )
+  if (outcome.error) return outcome
+  revalidatePath('/', 'layout')
+  return { ok: true }
+}
+
+export async function updateTank(
+  _prev: FormState,
+  data: FormData,
+): Promise<FormState> {
+  const denied = await ownerOnly()
+  if (denied) return denied
+
+  const supabase = await createClient()
+  const outcome = changed(
+    await supabase
+      .from('tanks')
+      .update({
+        name: String(data.get('name') ?? '').trim(),
+        capacity_litres: Number(data.get('capacity_litres') ?? 0),
+        opening_stock_litres: Number(data.get('opening_stock_litres') ?? 0),
+        opening_stock_date: String(data.get('opening_stock_date') ?? '') || null,
+        is_active: data.get('is_active') === 'on',
+      })
+      .eq('id', String(data.get('id')))
+      .select('id'),
+    'this tank',
+  )
+  if (outcome.error) return outcome
+  revalidatePath('/settings')
+  revalidatePath('/stock')
+  return { ok: true }
+}
+
+export async function updateNozzle(
+  _prev: FormState,
+  data: FormData,
+): Promise<FormState> {
+  const denied = await ownerOnly()
+  if (denied) return denied
+
+  const supabase = await createClient()
+  const outcome = changed(
+    await supabase
+      .from('nozzles')
+      .update({
+        name: String(data.get('name') ?? '').trim(),
+        tank_id: String(data.get('tank_id')),
+        sort_order: Number(data.get('sort_order') ?? 0),
+        is_active: data.get('is_active') === 'on',
+      })
+      .eq('id', String(data.get('id')))
+      .select('id'),
+    'this nozzle',
+  )
+  if (outcome.error) return outcome
+  revalidatePath('/settings')
+  revalidatePath('/shifts')
+  return { ok: true }
+}
+
+/** Deleting is refused by a trigger once the thing has priced a sale. */
+async function removeConfig(
+  table: 'fuel_types' | 'tanks' | 'nozzles',
+  data: FormData,
+  subject: string,
+): Promise<FormState> {
+  const denied = await ownerOnly()
+  if (denied) return denied
+
+  const supabase = await createClient()
+  const outcome = changed(
+    await supabase.from(table).delete().eq('id', String(data.get('id'))).select('id'),
+    subject,
+  )
+  if (outcome.error) return outcome
+  revalidatePath('/', 'layout')
+  return { ok: true }
+}
+
+export async function deleteFuelType(
+  _prev: FormState,
+  data: FormData,
+): Promise<FormState> {
+  return removeConfig('fuel_types', data, 'this fuel')
+}
+
+export async function deleteTank(
+  _prev: FormState,
+  data: FormData,
+): Promise<FormState> {
+  return removeConfig('tanks', data, 'this tank')
+}
+
+export async function deleteNozzle(
+  _prev: FormState,
+  data: FormData,
+): Promise<FormState> {
+  return removeConfig('nozzles', data, 'this nozzle')
+}

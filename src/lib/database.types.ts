@@ -571,3 +571,18 @@ export interface Delivery {
   invoice_variance: number | null
   order_variance: number | null
 }
+
+/** view: v_fuel_rates — the rate in force per fuel, and whether it is today's */
+export interface FuelRate {
+  fuel_type_id: string
+  station_id: string
+  name: string
+  name_gu: string | null
+  unit: 'L' | 'kg'
+  sort_order: number
+  color: string
+  sale_rate: number | null
+  effective_from: string | null
+  /** false means the pump is still selling at yesterday's price */
+  set_today: boolean
+}

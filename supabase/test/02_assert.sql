@@ -249,5 +249,135 @@ select assert_eq((select count(*) from fuel_purchase_costs), 0::bigint,
                  'manager still sees no purchase cost or VAT');
 rollback;
 
+
+-- ------------------------------------------------ every write is recorded --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+-- The trail is owner-only, so the counting is done with the owner's eyes
+-- while the writing is done with the manager's hands.
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+create temp table t_before on commit drop as select count(*) n from audit_log;
+
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+insert into expenses (category, amount) values ('Audited spend', 321);
+update expenses set amount = 456 where category = 'Audited spend';
+delete from expenses where category = 'Audited spend';
+
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+select assert_eq((select count(*) from audit_log) - (select n from t_before),
+                 3::bigint, 'insert, update and delete each leave a line');
+rollback;
+
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+update customers set credit_limit = 999999
+ where id = 'c1111111-0000-0000-0000-000000000001';
+
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+-- An update records only what moved, as [was, now].
+select assert_eq(
+  (select details -> 'credit_limit' ->> 1 from audit_log
+    where entity = 'customers' and action = 'update'
+    order by id desc limit 1),
+  '999999.00', 'an update records the new value');
+select assert_eq(
+  (select details -> 'credit_limit' ->> 0 from audit_log
+    where entity = 'customers' and action = 'update'
+    order by id desc limit 1),
+  '200000.00', 'and the value it replaced');
+select assert_eq(
+  (select actor_role::text from audit_log
+    where entity = 'customers' order by id desc limit 1),
+  'manager', 'and who did it');
+
+-- An update that changes nothing is not worth a line.
+create temp table t_noop on commit drop as select count(*) n from audit_log;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+update customers set credit_limit = 999999
+ where id = 'c1111111-0000-0000-0000-000000000001';
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+select assert_eq((select count(*) from audit_log) - (select n from t_noop),
+                 0::bigint, 'a no-op update writes nothing');
+
+-- A counter PIN must not sit in the log.
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+insert into staff (name, pin) values ('Pin Test', '4321');
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+select assert_eq((select details ->> 'pin' from audit_log
+                   where entity = 'staff' order by id desc limit 1),
+                 '***', 'a PIN is redacted');
+rollback;
+
+-- Only the owner may read the trail back.
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+select assert_eq((select count(*) from v_audit), 0::bigint, 'manager reads no audit');
+rollback;
+
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+select assert_eq((select count(*) > 0 from v_audit), true, 'owner reads the audit');
+rollback;
+
+
+-- ------------------------------ the equipment is the owner's, prices hers --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+select assert_eq((select count(*) > 0 from nozzles), true, 'manager reads the nozzles');
+select assert_raises($$ insert into nozzles (tank_id, fuel_type_id, name)
+  values ('11111111-0000-0000-0000-00000000000a',
+          'f1111111-0000-0000-0000-000000000001', 'X9') $$,
+  'manager adding a nozzle');
+-- Row level security answers a forbidden UPDATE or DELETE by matching no
+-- rows rather than raising, so these assert the row count, not an error.
+-- This is exactly why every action in the app goes through changed().
+create temp table t_upd on commit drop as
+  with u as (update nozzles set name = 'ZZ' where name = 'P1' returning 1)
+  select count(*) n from u;
+select assert_eq((select n from t_upd), 0::bigint, 'manager renames no nozzle');
+
+create temp table t_del on commit drop as
+  with d as (delete from tanks where name = 'Tank 1 Petrol' returning 1)
+  select count(*) n from d;
+select assert_eq((select n from t_del), 0::bigint, 'manager deletes no tank');
+select assert_eq((select count(*) from nozzles where name = 'P1'), 1::bigint,
+                 'and P1 is untouched');
+
+-- but the daily price is still hers
+insert into fuel_prices (fuel_type_id, sale_rate)
+  values ('f1111111-0000-0000-0000-000000000002', 90.500);
+select assert_eq(current_rate('f1111111-0000-0000-0000-000000000002'),
+                 90.500::numeric, 'manager still sets the rate');
+rollback;
+
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+insert into nozzles (tank_id, fuel_type_id, name)
+  values ('11111111-0000-0000-0000-00000000000a',
+          'f1111111-0000-0000-0000-000000000001', 'P9');
+select assert_eq((select count(*) from nozzles where name = 'P9'), 1::bigint,
+                 'owner adds a nozzle');
+update nozzles set name = 'P9b' where name = 'P9';
+select assert_eq((select count(*) from nozzles where name = 'P9b'), 1::bigint,
+                 'owner renames it');
+delete from nozzles where name = 'P9b';
+select assert_eq((select count(*) from nozzles where name = 'P9b'), 0::bigint,
+                 'owner deletes an unused one');
+
+-- but not one that has already priced a sale
+select assert_raises($$ delete from nozzles where name = 'P1' $$,
+  'deleting a nozzle that has readings');
+rollback;
+
 \echo ''
 \echo '================  ALL ASSERTIONS PASSED  ================'

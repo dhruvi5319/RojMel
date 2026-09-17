@@ -48,6 +48,15 @@ is visible rather than argued about, alongside the seal number, the tanker's own
 dip at rest, density, temperature and the water check. VAT on the purchase sits
 with the cost, where only an owner can read it.
 
+**Today's rate** sits at the top of the Today screen, because pump prices move
+daily and every other figure is priced off it. Setting it is three taps, and the
+app warns when a fuel is still on yesterday's price. The shift screen shows the
+rate rather than asking for it.
+
+**Everything is audited.** A database trigger records every insert, update and
+delete — who, when, which record, and for a change, what the value was before.
+Only an owner can read it, under More → Audit trail.
+
 ## How the money works
 
 The nozzle meter counts every litre that leaves the pump, whoever paid and

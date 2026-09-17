@@ -14,6 +14,10 @@ import {
   FuelForm, NozzleForm, RateForm, StationForm, TankForm,
 } from './SettingsForms'
 import { NozzleToggle } from './NozzleToggle'
+import { EditableRow } from '@/components/EditableRow'
+import { DeleteButton } from '@/components/DeleteButton'
+import { EditFuelForm, EditNozzleForm, EditTankForm } from './EquipmentForms'
+import { deleteFuelType, deleteNozzle, deleteTank } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,6 +28,7 @@ interface NozzleRow extends Nozzle {
 
 export default async function SettingsPage() {
   const session = await requireBackOffice()
+  const owner = isOwner(session)
   const t = await getT()
   const supabase = await createClient()
 
@@ -104,12 +109,20 @@ export default async function SettingsPage() {
             <tbody>
               {fuels.map((f) => {
                 const p = currentRate.get(f.id)
-                return (
-                  <tr key={f.id}>
+                const cells = (
+                  <>
                     <Td>
                       <span className="font-medium">{f.name}</span>
                       {f.name_gu ? (
                         <span className="ml-2 text-neutral-600">{f.name_gu}</span>
+                      ) : null}
+                      <span className="ml-2 text-[12px] text-neutral-600">
+                        /{f.unit}
+                      </span>
+                      {!f.is_active ? (
+                        <span className="ml-2">
+                          <Badge>{t('set.outOfUse')}</Badge>
+                        </span>
                       ) : null}
                     </Td>
                     <Td className="tabular text-right font-semibold">
@@ -118,7 +131,25 @@ export default async function SettingsPage() {
                     <Td className="text-neutral-600">
                       {p ? formatDate(p.effective_from) : '—'}
                     </Td>
-                  </tr>
+                  </>
+                )
+                return owner ? (
+                  <EditableRow
+                    key={f.id}
+                    span={3}
+                    label={`Edit ${f.name}`}
+                    cells={cells}
+                    actions={
+                      <DeleteButton
+                        action={deleteFuelType}
+                        fields={{ id: f.id }}
+                        label={`Delete ${f.name}`}
+                      />
+                    }
+                    form={<EditFuelForm fuel={f} />}
+                  />
+                ) : (
+                  <tr key={f.id}>{cells}</tr>
                 )
               })}
             </tbody>
@@ -130,9 +161,11 @@ export default async function SettingsPage() {
               <RateForm fuels={fuels} />
             </Collapsible>
           ) : null}
-          <Collapsible title={`${t('common.add')} — ${t('set.fuels')}`}>
-            <FuelForm />
-          </Collapsible>
+          {owner ? (
+            <Collapsible title={`${t('common.add')} — ${t('set.fuels')}`}>
+              <FuelForm />
+            </Collapsible>
+          ) : null}
         </div>
       </Card>
 
@@ -152,24 +185,53 @@ export default async function SettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {tanks.map((tk) => (
-                <tr key={tk.id}>
-                  <Td className="font-medium">{tk.name}</Td>
-                  <Td>{tk.fuel_types?.name ?? '—'}</Td>
-                  <Td className="tabular text-right">{litres(tk.capacity_litres)}</Td>
-                  <Td className="tabular text-right text-neutral-600">
-                    {litres(tk.opening_stock_litres)}
-                    {tk.opening_stock_date ? (
-                      <div className="text-sm">{formatDate(tk.opening_stock_date)}</div>
-                    ) : null}
-                  </Td>
-                </tr>
-              ))}
+              {tanks.map((tk) => {
+                const cells = (
+                  <>
+                    <Td className="font-medium">
+                      {tk.name}
+                      {!tk.is_active ? (
+                        <span className="ml-2">
+                          <Badge>{t('set.outOfUse')}</Badge>
+                        </span>
+                      ) : null}
+                    </Td>
+                    <Td>{tk.fuel_types?.name ?? '—'}</Td>
+                    <Td className="tabular text-right">{litres(tk.capacity_litres)}</Td>
+                    <Td className="tabular text-right text-neutral-600">
+                      {litres(tk.opening_stock_litres)}
+                      {tk.opening_stock_date ? (
+                        <div className="text-sm">{formatDate(tk.opening_stock_date)}</div>
+                      ) : null}
+                    </Td>
+                  </>
+                )
+                return owner ? (
+                  <EditableRow
+                    key={tk.id}
+                    span={4}
+                    label={`Edit ${tk.name}`}
+                    cells={cells}
+                    actions={
+                      <DeleteButton
+                        action={deleteTank}
+                        fields={{ id: tk.id }}
+                        label={`Delete ${tk.name}`}
+                      />
+                    }
+                    form={<EditTankForm tank={tk} />}
+                  />
+                ) : (
+                  <tr key={tk.id}>{cells}</tr>
+                )
+              })}
             </tbody>
           </TableWrap>
         )}
         <div className="border-t border-divider p-4">
-          {fuels.length === 0 ? (
+          {!owner ? (
+            <Alert tone="accent">{t('set.equipmentOwnerOnly')}</Alert>
+          ) : fuels.length === 0 ? (
             <Alert tone="accent">Add a fuel before adding a tank.</Alert>
           ) : (
             <Collapsible title={`${t('common.add')} — ${t('set.tanks')}`}>
@@ -195,21 +257,43 @@ export default async function SettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {nozzles.map((nz) => (
-                <tr key={nz.id}>
-                  <Td className="font-medium">{nz.name}</Td>
-                  <Td>{nz.tanks?.name ?? '—'}</Td>
-                  <Td>{nz.fuel_types?.name ?? '—'}</Td>
-                  <Td className="text-right">
-                    <NozzleToggle id={nz.id} active={nz.is_active} />
-                  </Td>
-                </tr>
-              ))}
+              {nozzles.map((nz) => {
+                const cells = (
+                  <>
+                    <Td className="font-medium">{nz.name}</Td>
+                    <Td>{nz.tanks?.name ?? '—'}</Td>
+                    <Td>{nz.fuel_types?.name ?? '—'}</Td>
+                    <Td className="text-right">
+                      <NozzleToggle id={nz.id} active={nz.is_active} />
+                    </Td>
+                  </>
+                )
+                return owner ? (
+                  <EditableRow
+                    key={nz.id}
+                    span={4}
+                    label={`Edit ${nz.name}`}
+                    cells={cells}
+                    actions={
+                      <DeleteButton
+                        action={deleteNozzle}
+                        fields={{ id: nz.id }}
+                        label={`Delete ${nz.name}`}
+                      />
+                    }
+                    form={<EditNozzleForm nozzle={nz} tanks={tanks} />}
+                  />
+                ) : (
+                  <tr key={nz.id}>{cells}</tr>
+                )
+              })}
             </tbody>
           </TableWrap>
         )}
         <div className="border-t border-divider p-4">
-          {tanks.length === 0 ? (
+          {!owner ? (
+            <Alert tone="accent">{t('set.equipmentOwnerOnly')}</Alert>
+          ) : tanks.length === 0 ? (
             <Alert tone="accent">Add a tank before adding a nozzle.</Alert>
           ) : (
             <Collapsible title={`${t('common.add')} — ${t('set.nozzles')}`}>

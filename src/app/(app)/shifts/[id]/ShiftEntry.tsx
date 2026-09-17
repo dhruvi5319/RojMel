@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Check, Save, TriangleAlert } from 'lucide-react'
 import { useT } from '@/lib/i18n/client'
@@ -233,7 +234,18 @@ export function ShiftEntry({
     <div className="flex flex-col gap-4">
       {/* ------------------------------------------------------ readings -- */}
       <Card role="group" aria-label="Nozzle readings">
-        <CardHeader title={t('shift.readings')} subtitle={t('shift.testHint')} />
+        <CardHeader
+          title={t('shift.readings')}
+          subtitle={t('shift.testHint')}
+          action={
+            <Link
+              href="/#rates"
+              className="text-[12.5px] font-semibold whitespace-nowrap text-accent hover:underline"
+            >
+              {t('rate.today')} →
+            </Link>
+          }
+        />
         <div className="flex flex-col divide-y divide-divider">
           {rows.map((r, i) => {
             const l = r.closing.trim() === '' ? 0 : n(r.closing) - n(r.opening) - n(r.test)
@@ -250,10 +262,13 @@ export function ShiftEntry({
                     <div className="text-sm text-neutral-600">
                       {money(Math.max(0, l) * n(r.rate))}
                     </div>
+                    <div className="text-[12px] text-neutral-600">
+                      {t('rate.usedThisShift')} ₹{n(r.rate).toFixed(2)}
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Field label={t('shift.opening')}>
                     <NumberInput
                       step="0.001"
@@ -276,14 +291,6 @@ export function ShiftEntry({
                       value={r.test}
                       disabled={locked}
                       onChange={(e) => setRow(i, { test: e.target.value })}
-                    />
-                  </Field>
-                  <Field label={t('common.rate')}>
-                    <NumberInput
-                      step="0.001"
-                      value={r.rate}
-                      disabled={locked}
-                      onChange={(e) => setRow(i, { rate: e.target.value })}
                     />
                   </Field>
                   <Field label={t('shift.filler')}>
@@ -332,10 +339,13 @@ export function ShiftEntry({
                       <div className="text-sm text-neutral-600">
                         {money(Math.max(0, k) * n(g.rate))}
                       </div>
+                      <div className="text-[12px] text-neutral-600">
+                        {t('rate.usedThisShift')} ₹{n(g.rate).toFixed(2)}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <Field label={t('shift.opening')}>
                       <NumberInput
                         step="0.001"
@@ -360,14 +370,7 @@ export function ShiftEntry({
                         onChange={(e) => setGasRow(i, { test: e.target.value })}
                       />
                     </Field>
-                    <Field label={t('common.rate')}>
-                      <NumberInput
-                        step="0.001"
-                        value={g.rate}
-                        disabled={locked}
-                        onChange={(e) => setGasRow(i, { rate: e.target.value })}
-                      />
-                    </Field>
+  
                     <Field label={t('shift.filler')}>
                       <Select
                         value={g.staff_id}

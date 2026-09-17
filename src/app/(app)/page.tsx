@@ -6,8 +6,11 @@ import { requireBackOffice, isOwner } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import { formatDateLong, litres, money, moneyWhole, todayIST } from '@/lib/format'
-import type { CustomerBalance, DaySummary, TankStock } from '@/lib/database.types'
+import type {
+  CustomerBalance, DaySummary, FuelRate, TankStock,
+} from '@/lib/database.types'
 import { Alert, Kicker, Proposal, Stat } from '@/components/ui'
+import { TodaysRates } from '@/components/TodaysRates'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,7 +24,8 @@ export default async function TheDay({
   const supabase = await createClient()
   const date = (await searchParams).date || todayIST()
 
-  const [summaryRes, slipsRes, balancesRes, stockRes, nozzleRes] = await Promise.all([
+  const [summaryRes, slipsRes, balancesRes, stockRes, nozzleRes, ratesRes] =
+    await Promise.all([
     supabase.rpc('day_summary', { p_date: date }),
     supabase
       .from('credit_sales')
@@ -34,6 +38,7 @@ export default async function TheDay({
       .order('balance', { ascending: false }),
     supabase.from('v_tank_stock').select('*').order('name'),
     supabase.from('nozzles').select('id').limit(1),
+    supabase.from('v_fuel_rates').select('*').order('sort_order'),
   ])
 
   const day = (summaryRes.data ?? null) as DaySummary | null
@@ -41,6 +46,8 @@ export default async function TheDay({
   const customers = (balancesRes.data ?? []) as CustomerBalance[]
   const tanks = (stockRes.data ?? []) as TankStock[]
   const notSetUp = (nozzleRes.data ?? []).length === 0
+  const rates = (ratesRes.data ?? []) as FuelRate[]
+  const staleRates = rates.filter((r) => !r.set_today)
 
   const short = day?.collection_short ?? 0
   const square = Math.abs(short) < 0.5
@@ -49,6 +56,17 @@ export default async function TheDay({
 
   /* ── the day's rhythm ─────────────────────────────────────────────────── */
   const steps = [
+    {
+      href: '#rates',
+      label: t('rate.today'),
+      detail:
+        rates.length === 0
+          ? t('rate.noneYet')
+          : staleRates.length === 0
+            ? `${rates.length} · ${t('rate.allSetToday')}`
+            : `${rates.length - staleRates.length} of ${rates.length} ${t('rate.setToday').toLowerCase()}`,
+      done: rates.length > 0 && staleRates.length === 0,
+    },
     {
       href: `/shifts?date=${date}`,
       label: t('shift.readings'),
@@ -137,6 +155,23 @@ export default async function TheDay({
         </div>
       ) : null}
 
+      {staleRates.length > 0 && !notSetUp ? (
+        <div className="mb-5">
+          <Alert tone="accent">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>
+                <strong>{t('rate.staleWarning')}</strong>{' '}
+                {staleRates.slice(0, 3).map((r) => r.name).join(', ')}
+                {staleRates.length > 3 ? ` +${staleRates.length - 3}` : ''}
+              </span>
+              <a href="#rates" className="font-semibold underline">
+                {t('set.newRate')} →
+              </a>
+            </div>
+          </Alert>
+        </div>
+      ) : null}
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-start">
         {/* ─────────────────────────────────────────────── today's rhythm ── */}
         <div className="flex flex-col gap-5">
@@ -206,6 +241,10 @@ export default async function TheDay({
 
         {/* ──────────────────────────────────────────────── the day's sum ── */}
         <div>
+          <div id="rates" className="mb-5 scroll-mt-24">
+            <TodaysRates rates={rates} />
+          </div>
+
           <Kicker>{t('dash.todaySales')}</Kicker>
           <h1 className="mt-1 mb-5 text-[28px]">{formatDateLong(date)}</h1>
 

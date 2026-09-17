@@ -38,7 +38,8 @@ async function reflects(needle) {
     throw new Error(`"${needle}" did not appear without a reload`)
   }
   await page.reload()
-  await page.waitForLoadState('networkidle')
+  await page.waitForLoadState('load')
+  await page.waitForTimeout(700)
   const after = await body()
   if (!after.includes(needle)) {
     throw new Error(`"${needle}" appeared but was GONE after reload (not saved)`)
@@ -47,7 +48,8 @@ async function reflects(needle) {
 
 async function gone(needle) {
   await page.reload()
-  await page.waitForLoadState('networkidle')
+  await page.waitForLoadState('load')
+  await page.waitForTimeout(700)
   if ((await body()).includes(needle)) throw new Error(`"${needle}" still present after delete`)
 }
 
@@ -67,6 +69,16 @@ async function selectContaining(selector, text) {
     text)
   if (value === undefined) throw new Error(`no option containing "${text}"`)
   await page.selectOption(selector, value)
+}
+
+/**
+ * The pump's equipment is owner-only now, so these run signed in as the owner
+ * and hand the session back to the manager afterwards.
+ */
+async function checkAsOwner(label, fn) {
+  await login('father@test.in')
+  await check(label, fn)
+  await login('manager@test.in')
 }
 
 /** Open an EditableRow's pencil for the row containing `text`. */
@@ -117,7 +129,8 @@ await check('settings: manager cannot edit pump details', async () => {
   if (!(await body()).includes('Owner only')) throw new Error('no owner-only notice')
 })
 
-await check('settings: add a fuel', async () => {
+await checkAsOwner('settings: add a fuel', async () => {
+  await page.goto(`${BASE}/settings`, { waitUntil: 'load' })
   await openPanel('Fuels & rates')
   const form = page.locator('form').filter({ has: page.locator('input[name=sort_order]') })
     .filter({ has: page.locator('input[name=name_gu]') })
@@ -137,7 +150,7 @@ await check('settings: change a rate', async () => {
   await reflects('₹97.77')
 })
 
-await check('settings: add a tank', async () => {
+await checkAsOwner('settings: add a tank', async () => {
   await page.goto(`${BASE}/settings`)
   await openPanel('Tanks')
   const form = page.locator('form').filter({ has: page.locator('input[name=capacity_litres]') })
@@ -147,7 +160,7 @@ await check('settings: add a tank', async () => {
   await reflects(`Tank ${STAMP}`)
 })
 
-await check('settings: add a nozzle', async () => {
+await checkAsOwner('settings: add a nozzle', async () => {
   await page.goto(`${BASE}/settings`)
   await openPanel('Nozzles')
   const form = page.locator('form').filter({ has: page.locator('select[name=tank_id]') })
@@ -582,6 +595,49 @@ await check('counter: the slip reached the books', async () => {
   await login('manager@test.in')
   await page.goto(`${BASE}/credit`)
   if (!(await body()).includes('37.00 L')) throw new Error('the counter slip is not in the credit list')
+})
+
+// Equipment is the owner's, and every change is recorded.
+await checkAsOwner('settings: owner edits and deletes a nozzle', async () => {
+  await page.goto(`${BASE}/settings`)
+  await openPanel(`${'Add'} — Nozzles`).catch(() => {})
+  const f = page.locator('form').filter({ has: page.locator('select[name=tank_id]') }).first()
+  await f.locator('input[name=name]').fill(`N${STAMP}x`)
+  await submitIn(f, 2500)
+  await reflects(`N${STAMP}x`)
+
+  // rename it through the row editor
+  await openRowEditor(`N${STAMP}x`)
+  const e = page.locator('td[colspan] form')
+  await e.locator('input[name=name]').fill(`N${STAMP}y`)
+  await submitIn(e, 2500)
+  await reflects(`N${STAMP}y`)
+
+  // and remove it, since nothing has been sold through it
+  const row = page.locator('tr', { hasText: `N${STAMP}y` }).first()
+  await row.locator('button[aria-label^="Delete"]').click()
+  await page.waitForTimeout(2500)
+  await gone(`N${STAMP}y`)
+})
+
+await check('settings: manager cannot touch the equipment', async () => {
+  await page.goto(`${BASE}/settings`)
+  const t2 = await body()
+  if (!t2.includes('Only an owner can add or change')) {
+    throw new Error('the manager was not told the equipment is owner-only')
+  }
+  if ((await page.locator('button[aria-label^="Edit N"]').count()) !== 0) {
+    throw new Error('the manager was shown a nozzle editor')
+  }
+})
+
+await checkAsOwner('audit: the trail shows who changed what', async () => {
+  await page.goto(`${BASE}/audit`)
+  const t2 = await body()
+  for (const w of ['Nozzle', 'Added', 'Changed', 'Deleted']) {
+    if (!t2.includes(w)) throw new Error(`audit trail missing "${w}"`)
+  }
+  if (!/Manager|Father/.test(t2)) throw new Error('audit trail names nobody')
 })
 
 console.log(`\n${'='.repeat(60)}`)
