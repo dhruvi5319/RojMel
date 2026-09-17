@@ -16,5 +16,9 @@ psql -h localhost -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -q \
   -f "$ROOT/supabase/migrations/0006_nozzle_state.sql" \
   -f "$ROOT/supabase/migrations/0007_cash_position.sql" \
   -f "$ROOT/supabase/migrations/0008_reports.sql" \
+  -f "$ROOT/supabase/migrations/0009_payment_modes.sql" \
+  -f "$ROOT/supabase/migrations/0010_stock_and_decantation.sql" \
+  -f "$ROOT/supabase/migrations/0011_cng.sql" \
+  -f "$ROOT/supabase/migrations/0012_day_summary_v2.sql" \
   -f "$ROOT/supabase/test/01_seed.sql" \
   -f "$ROOT/supabase/test/02_assert.sql"

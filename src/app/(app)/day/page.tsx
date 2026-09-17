@@ -80,7 +80,11 @@ export default async function DayPage({
           <Stat
             label={t('day.meterSales')}
             value={money(day?.meter_sales ?? 0)}
-            hint={litres(day?.litres_sold ?? 0)}
+            hint={
+              (day?.kg_sold ?? 0) > 0
+                ? `${litres(day?.litres_sold ?? 0)} · ${(day?.kg_sold ?? 0).toFixed(2)} kg`
+                : litres(day?.litres_sold ?? 0)
+            }
             tone="accent"
           />
           <Stat label={t('dash.creditGiven')} value={money(day?.credit_sales ?? 0)} />
@@ -100,8 +104,13 @@ export default async function DayPage({
         <TableWrap>
           <tbody>
             <Line label={t('mode.cash')} value={money(day?.collected_cash ?? 0)} />
-            <Line label={t('mode.upi')} value={money(day?.collected_upi ?? 0)} />
             <Line label={t('mode.card')} value={money(day?.collected_card ?? 0)} />
+            <Line label={t('mode.upi')} value={money(day?.collected_upi ?? 0)} />
+            <Line
+              label={t('mode.bpcl_card')}
+              value={money(day?.collected_bpcl ?? 0)}
+              hint={t('day.settlesToBank')}
+            />
             <Line
               label={t('day.receipts')}
               value={money(day?.customer_receipts ?? 0)}

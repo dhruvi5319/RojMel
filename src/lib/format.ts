@@ -43,6 +43,14 @@ export function litres(value: number | null | undefined): string {
   return `${litreFmt.format(Number(value ?? 0))} L`
 }
 
+/** Litres for petrol and diesel, kilograms for CNG. */
+export function quantity(
+  value: number | null | undefined,
+  unit: 'L' | 'kg' = 'L',
+): string {
+  return `${litreFmt.format(Number(value ?? 0))} ${unit}`
+}
+
 export function rate(value: number | null | undefined): string {
   return `₹${plain.format(Number(value ?? 0))}`
 }

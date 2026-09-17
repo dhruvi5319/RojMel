@@ -31,6 +31,18 @@ The permission split is enforced by Postgres row level security, not by hiding
 buttons — a manager who called the API directly still could not read a purchase
 rate.
 
+## What it tracks
+
+Petrol and diesel by the litre, CNG by the kilogram. Four ways money arrives at
+the end of a shift — **cash**, **ATM** (the card machine), **UPI** and the
+**BPCL card** — each reconciled against what the meters say was sold.
+
+Stock is dipped every shift. A tanker delivery keeps the ordered quantity, the
+challan quantity and what actually went into the tank apart, so a short delivery
+is visible rather than argued about, alongside the seal number, the tanker's own
+dip at rest, density, temperature and the water check. VAT on the purchase sits
+with the cost, where only an owner can read it.
+
 ## How the money works
 
 The nozzle meter counts every litre that leaves the pump, whoever paid and
@@ -43,7 +55,10 @@ cash/UPI/card expected from the fillers = meter sales − credit sales
 
 Credit sales are never added to meter sales anywhere in the code. Test fuel is
 poured back into the tank, so it is subtracted from litres sold but not from
-stock.
+stock. CNG sells in kilograms but its rupees join the same sum.
+
+Of the four collection modes only **cash** reaches the cash box — ATM, UPI and
+the BPCL card all settle to the bank, so none of them moves cash in hand.
 
 Cash in hand is tracked the same way:
 

@@ -41,11 +41,24 @@ export interface ReadingInput {
   sale_rate: number
 }
 
+/** CNG is metered in kilograms, but it closes with the same shift. */
+export interface CngReadingInput {
+  dispenser_id: string
+  staff_id: string | null
+  opening_reading: number
+  closing_reading: number
+  test_kg: number
+  sale_rate: number
+}
+
 export interface CollectionInput {
   staff_id: string
   cash_amount: number
-  upi_amount: number
+  /** the ATM swipe machine */
   card_amount: number
+  upi_amount: number
+  /** BPCL's prepaid card — collected, but it never reaches the cash box */
+  bpcl_amount: number
 }
 
 /**
@@ -56,6 +69,7 @@ export async function saveShift(
   shiftId: string,
   readings: ReadingInput[],
   collections: CollectionInput[],
+  cng: CngReadingInput[] = [],
 ): Promise<ActionResult> {
   const supabase = await createClient()
 
@@ -79,7 +93,11 @@ export async function saveShift(
   }
 
   const keepColl = collections.filter(
-    (c) => c.cash_amount > 0 || c.upi_amount > 0 || c.card_amount > 0,
+    (c) =>
+      c.cash_amount > 0 ||
+      c.upi_amount > 0 ||
+      c.card_amount > 0 ||
+      c.bpcl_amount > 0,
   )
 
   if (keepColl.length > 0) {
@@ -99,6 +117,27 @@ export async function saveShift(
       .delete()
       .eq('shift_id', shiftId)
       .in('staff_id', dropColl)
+  }
+
+  // CNG dispensers, counted in kilograms against the same shift.
+  const keepCng = cng.filter((c) => c.closing_reading > 0 || c.opening_reading > 0)
+  if (keepCng.length > 0) {
+    const { error } = await supabase
+      .from('cng_readings')
+      .upsert(
+        keepCng.map((c) => ({ ...c, shift_id: shiftId })),
+        { onConflict: 'shift_id,dispenser_id' },
+      )
+    if (error) return { error: friendly(error) }
+  }
+
+  const dropCng = cng.filter((c) => !keepCng.includes(c)).map((c) => c.dispenser_id)
+  if (dropCng.length > 0) {
+    await supabase
+      .from('cng_readings')
+      .delete()
+      .eq('shift_id', shiftId)
+      .in('dispenser_id', dropCng)
   }
 
   revalidatePath(`/shifts/${shiftId}`)

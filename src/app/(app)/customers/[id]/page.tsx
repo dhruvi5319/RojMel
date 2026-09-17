@@ -4,7 +4,7 @@ import { Plus, Receipt } from 'lucide-react'
 import { requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, litres, money } from '@/lib/format'
+import { formatDate, money, quantity } from '@/lib/format'
 import type {
   CreditSale, Customer, CustomerBalance, Invoice, Payment, Vehicle,
 } from '@/lib/database.types'
@@ -91,7 +91,7 @@ export default async function CustomerPage({
     ...sales.map((s) => ({
       date: s.business_date,
       kind: 'sale' as const,
-      detail: [s.vehicle_number, s.slip_number && `#${s.slip_number}`, litres(s.litres)]
+      detail: [s.vehicle_number, s.slip_number && `#${s.slip_number}`, quantity(s.quantity)]
         .filter(Boolean)
         .join(' · '),
       debit: Number(s.amount),

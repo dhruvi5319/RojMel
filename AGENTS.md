@@ -20,6 +20,17 @@ Real software for a family business, not a demo — see README.md.
 litre that leaves the pump. A credit sale is the slice of that which went out on
 udhaar, so `cash expected = meter sales − credit sales`. Never add the two.
 
+**Three fuels, two units.** `fuel_types.unit` is `L` or `kg`. Petrol and diesel
+live in tanks with dips and arrive by tanker; CNG is piped in by Gujarat Gas,
+metered in SCM at the inlet, and sold by the kilogram — no tank, no dip, no
+decanting. Its sales still fold into `day_summary`, because the pump's day must
+tally as one day whatever the fuel was measured in.
+
+**Four ways money arrives.** cash · ATM (the card machine) · UPI · BPCL card.
+The BPCL card is a prepaid card BPCL issues to a customer, so the fuel is paid
+for — it is a collection, never udhaar — but it settles to the bank and never
+reaches the cash box. Only `cash_amount` does.
+
 **Test fuel goes back in the tank.** `litres = closing − opening − test`, and
 test litres are not deducted from stock.
 
@@ -30,6 +41,11 @@ denormalise a rate onto `fuel_purchases`, `fuel_prices` or any view.
 
 **Money is computed in Postgres, never in the client.** Amounts are generated
 columns or SQL functions. The client formats; it does not calculate what is owed.
+
+**Stock follows what reached the tank.** A delivery keeps three quantities
+apart — `ordered_litres` indented, `invoice_litres` on the challan, and `litres`
+actually decanted. Only the last moves stock. The tanker's own dip is taken once
+with the product at rest, before decanting.
 
 **Rates are append-only.** Changing a price inserts a new `fuel_prices` row with
 its own `effective_from`. Never update an existing rate.

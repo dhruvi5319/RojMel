@@ -5,6 +5,30 @@ import { createClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { changed, friendly, type FormState } from '@/lib/actions'
 
+/**
+ * Petrol and diesel sit outside GST and attract state VAT, so a purchase
+ * invoice reads as a basic amount plus the tax on it. VAT is taken as being
+ * charged ON TOP of the per-litre rate, which is how a tax invoice normally
+ * reads — the form shows the resulting total so it can be checked against the
+ * paper before saving.
+ */
+function invoiceMoney(data: FormData, litres: number, rate: number) {
+  const vatRate = Number(data.get('vat_rate') ?? 0)
+  const basic = Number((litres * rate).toFixed(2))
+  const vat = Number(((basic * vatRate) / 100).toFixed(2))
+
+  return {
+    supplier: String(data.get('supplier') ?? '').trim() || null,
+    invoice_number: String(data.get('invoice_number') ?? '').trim() || null,
+    invoice_date: String(data.get('invoice_date') ?? '') || null,
+    rate_per_litre: rate,
+    basic_amount: basic,
+    vat_rate: vatRate || null,
+    vat_amount: vat || null,
+    amount: Number((basic + vat).toFixed(2)),
+  }
+}
+
 export async function recordDelivery(
   _prev: FormState,
   data: FormData,
@@ -23,6 +47,8 @@ export async function recordDelivery(
 
   if (!tank) return { error: 'Choose a tank.' }
 
+  const num = (k: string) => (data.get(k) ? Number(data.get(k)) : null)
+
   const { data: purchase, error } = await supabase
     .from('fuel_purchases')
     .insert({
@@ -30,8 +56,19 @@ export async function recordDelivery(
       fuel_type_id: tank.fuel_type_id,
       delivery_date: String(data.get('delivery_date')),
       tanker_number: String(data.get('tanker_number') ?? '').trim() || null,
+      // Three quantities, kept apart because a shortage argument turns on them.
+      ordered_litres: num('ordered_litres'),
+      invoice_litres: num('invoice_litres'),
+      tanker_dip_litres: num('tanker_dip_litres'),
       litres,
-      density: data.get('density') ? Number(data.get('density')) : null,
+      dip_before_litres: num('dip_before_litres'),
+      dip_after_litres: num('dip_after_litres'),
+      seal_number: String(data.get('seal_number') ?? '').trim() || null,
+      seals_intact: data.get('seals_intact') === 'on',
+      water_check_ok: data.get('water_check_ok') === 'on',
+      density: num('density'),
+      temperature_c: num('temperature_c'),
+      decanted_at: new Date().toISOString(),
       received_by: String(data.get('received_by') ?? '') || null,
       notes: String(data.get('notes') ?? '').trim() || null,
     })
@@ -116,7 +153,16 @@ export async function updateDelivery(
         delivery_date: String(data.get('delivery_date')),
         tanker_number: String(data.get('tanker_number') ?? '').trim() || null,
         litres,
+        ordered_litres: data.get('ordered_litres') ? Number(data.get('ordered_litres')) : null,
+        invoice_litres: data.get('invoice_litres') ? Number(data.get('invoice_litres')) : null,
+        tanker_dip_litres: data.get('tanker_dip_litres')
+          ? Number(data.get('tanker_dip_litres'))
+          : null,
+        seal_number: String(data.get('seal_number') ?? '').trim() || null,
+        seals_intact: data.get('seals_intact') === 'on',
+        water_check_ok: data.get('water_check_ok') === 'on',
         density: data.get('density') ? Number(data.get('density')) : null,
+        temperature_c: data.get('temperature_c') ? Number(data.get('temperature_c')) : null,
         notes: String(data.get('notes') ?? '').trim() || null,
       })
       .eq('id', id)
@@ -129,13 +175,7 @@ export async function updateDelivery(
   const rate = Number(data.get('rate_per_litre') ?? 0)
   if (session?.profile.role === 'owner' && rate > 0) {
     const { error } = await supabase.from('fuel_purchase_costs').upsert(
-      {
-        purchase_id: id,
-        supplier: String(data.get('supplier') ?? '').trim() || null,
-        invoice_number: String(data.get('invoice_number') ?? '').trim() || null,
-        rate_per_litre: rate,
-        amount: Number((litres * rate).toFixed(2)),
-      },
+      { purchase_id: id, ...invoiceMoney(data, litres, rate) },
       { onConflict: 'purchase_id' },
     )
     if (error) return { error: friendly(error) }

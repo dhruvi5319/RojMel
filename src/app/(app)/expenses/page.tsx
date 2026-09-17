@@ -1,7 +1,7 @@
 import { requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, money, todayIST } from '@/lib/format'
+import { formatDate, money, monthEnd, todayIST } from '@/lib/format'
 import type { Expense } from '@/lib/database.types'
 import { Card, Empty, PageHeader, Stat, TableWrap, Td, Th } from '@/components/ui'
 import { DeleteButton } from '@/components/DeleteButton'
@@ -28,7 +28,7 @@ export default async function ExpensesPage({
     .from('expenses')
     .select('*')
     .gte('business_date', `${month}-01`)
-    .lte('business_date', `${month}-31`)
+    .lte('business_date', monthEnd(`${month}-01`))
     .order('business_date', { ascending: false })
 
   const rows = (data ?? []) as Expense[]

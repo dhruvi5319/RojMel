@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import { formatDate, litres, money, todayIST } from '@/lib/format'
 import type {
-  FuelPurchase, FuelPurchaseCost, Staff, Tank, TankStock,
+  Delivery, FuelPurchaseCost, Shift, Staff, Tank, TankStock,
 } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, TableWrap, Td, Th,
@@ -17,9 +17,7 @@ import { deleteDelivery } from './actions'
 
 export const dynamic = 'force-dynamic'
 
-interface DeliveryRow extends FuelPurchase {
-  tanks: { name: string } | null
-  staff: { name: string } | null
+interface DeliveryRow extends Delivery {
   /** one-to-one embed: an object, or null when RLS hides it */
   fuel_purchase_costs: FuelPurchaseCost | null
 }
@@ -31,21 +29,27 @@ export default async function StockPage() {
   const supabase = await createClient()
   const today = todayIST()
 
-  const [stockRes, tanksRes, staffRes, deliveriesRes] = await Promise.all([
+  const [stockRes, tanksRes, staffRes, deliveriesRes, shiftsRes] = await Promise.all([
     supabase.from('v_tank_stock').select('*').order('name'),
     supabase.from('tanks').select('*').eq('is_active', true).order('name'),
     supabase.from('staff').select('*').eq('is_active', true).order('name'),
     supabase
-      .from('fuel_purchases')
-      .select('*, tanks(name), staff(name), fuel_purchase_costs(*)')
+      .from('v_deliveries')
+      .select('*, fuel_purchase_costs(*)')
       .order('delivery_date', { ascending: false })
       .limit(60),
+    supabase
+      .from('shifts')
+      .select('*')
+      .eq('business_date', today)
+      .order('sort_order'),
   ])
 
   const stock = (stockRes.data ?? []) as TankStock[]
   const tanks = (tanksRes.data ?? []) as Tank[]
   const staff = (staffRes.data ?? []) as Staff[]
   const deliveries = (deliveriesRes.data ?? []) as unknown as DeliveryRow[]
+  const shifts = (shiftsRes.data ?? []) as Shift[]
 
   return (
     <>
@@ -145,7 +149,7 @@ export default async function StockPage() {
             />
           </Collapsible>
           <Collapsible title={t('stock.recordDip')}>
-            <DipForm tanks={tanks} today={today} />
+            <DipForm tanks={tanks} today={today} shifts={shifts} />
           </Collapsible>
         </div>
       ) : null}
@@ -166,7 +170,8 @@ export default async function StockPage() {
                   <Th>{t('common.date')}</Th>
                   <Th>{t('stock.tank')}</Th>
                   <Th>{t('stock.tanker')}</Th>
-                  <Th className="text-right">{t('common.litres')}</Th>
+                  <Th className="text-right">{t('stock.challan')}</Th>
+                  <Th className="text-right">{t('stock.received')}</Th>
                   {owner ? (
                     <>
                       <Th className="text-right">{t('stock.purchaseRate')}</Th>
@@ -186,15 +191,27 @@ export default async function StockPage() {
                       label="Edit delivery"
                       cells={<>
                       <Td className="whitespace-nowrap">{formatDate(d.delivery_date)}</Td>
-                      <Td className="font-medium">{d.tanks?.name ?? '—'}</Td>
+                      <Td className="font-medium">{d.tank_name}</Td>
                       <Td className="tabular">
                         {d.tanker_number ?? '—'}
-                        {d.staff?.name ? (
-                          <div className="text-sm text-neutral-600">{d.staff.name}</div>
+                        {d.seal_number ? (
+                          <div className="text-sm text-neutral-600">
+                            {t('stock.seal')} {d.seal_number}
+                          </div>
                         ) : null}
+                      </Td>
+                      <Td className="tabular text-right text-neutral-600">
+                        {d.invoice_litres != null ? litres(d.invoice_litres) : '—'}
                       </Td>
                       <Td className="tabular text-right font-semibold">
                         {litres(d.litres)}
+                        {d.invoice_variance != null && d.invoice_variance < -0.5 ? (
+                          <div className="mt-1">
+                            <Badge tone="danger">
+                              {t('stock.shortDelivery')} {litres(Math.abs(d.invoice_variance))}
+                            </Badge>
+                          </div>
+                        ) : null}
                       </Td>
                       {owner ? (
                         <>

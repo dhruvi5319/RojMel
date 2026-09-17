@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, litres, money } from '@/lib/format'
+import { formatDate, money, quantity } from '@/lib/format'
 import type {
   CreditSale, Customer, Invoice, Payment,
 } from '@/lib/database.types'
@@ -42,7 +42,7 @@ export default async function InvoicePage({
       .maybeSingle<Customer>(),
     supabase
       .from('credit_sales')
-      .select('*, fuel_types(name), vehicles(vehicle_number)')
+      .select('*, fuel_types(name, unit), vehicles(vehicle_number)')
       .eq('invoice_id', id)
       .order('business_date'),
     supabase.from('payments').select('*').eq('invoice_id', id).order('payment_date'),
@@ -50,7 +50,7 @@ export default async function InvoicePage({
 
   const customer = customerRes.data
   const slips = (slipsRes.data ?? []) as unknown as (CreditSale & {
-    fuel_types: { name: string } | null
+    fuel_types: { name: string; unit: 'L' | 'kg' } | null
   })[]
   const payments = (paymentsRes.data ?? []) as Payment[]
   const paid = payments.reduce((s, p) => s + Number(p.amount), 0)
@@ -153,7 +153,7 @@ export default async function InvoicePage({
                 <Th>{t('common.date')}</Th>
                 <Th>{t('credit.vehicle')}</Th>
                 <Th>{t('common.fuel')}</Th>
-                <Th className="text-right">{t('common.litres')}</Th>
+                <Th className="text-right">{t('common.quantity')}</Th>
                 <Th className="text-right">{t('common.rate')}</Th>
                 <Th className="text-right">{t('common.amount')}</Th>
               </tr>
@@ -174,7 +174,9 @@ export default async function InvoicePage({
                     {!s.vehicle_number && !s.slip_number ? '—' : null}
                   </Td>
                   <Td>{s.fuel_types?.name ?? '—'}</Td>
-                  <Td className="tabular text-right">{litres(s.litres)}</Td>
+                  <Td className="tabular text-right">
+                    {quantity(s.quantity, s.fuel_types?.unit ?? 'L')}
+                  </Td>
                   <Td className="tabular text-right">
                     {Number(s.sale_rate).toFixed(2)}
                   </Td>

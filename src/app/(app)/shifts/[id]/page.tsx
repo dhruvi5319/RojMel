@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import { formatDateLong } from '@/lib/format'
 import type {
-  NozzleReading, NozzleState, Shift, ShiftCollection, Staff,
+  CngReading, CngState, NozzleReading, NozzleState, Shift, ShiftCollection, Staff,
 } from '@/lib/database.types'
 import { Alert, LinkButton, PageHeader } from '@/components/ui'
 import { ShiftEntry } from './ShiftEntry'
@@ -29,8 +29,10 @@ export default async function ShiftPage({
 
   if (!shift) notFound()
 
-  const [nozzlesRes, readingsRes, staffRes, collectionsRes, closingRes, creditRes] =
-    await Promise.all([
+  const [
+    nozzlesRes, readingsRes, staffRes, collectionsRes, closingRes, creditRes,
+    cngStateRes, cngReadingsRes,
+  ] = await Promise.all([
       supabase.from('v_nozzle_state').select('*').order('sort_order'),
       supabase.from('nozzle_readings').select('*').eq('shift_id', id),
       supabase.from('staff').select('*').eq('is_active', true).order('name'),
@@ -43,6 +45,8 @@ export default async function ShiftPage({
       // Credit slips are part of the meter total, so the handover expected
       // from the fillers is meter sales minus whatever went out on udhaar.
       supabase.from('credit_sales').select('amount').eq('shift_id', id),
+      supabase.from('v_cng_state').select('*').order('sort_order'),
+      supabase.from('cng_readings').select('*').eq('shift_id', id),
     ])
 
   const creditTotal = (creditRes.data ?? []).reduce(
@@ -83,6 +87,8 @@ export default async function ShiftPage({
         staff={(staffRes.data ?? []) as Staff[]}
         collections={(collectionsRes.data ?? []) as ShiftCollection[]}
         creditTotal={creditTotal}
+        cngDispensers={(cngStateRes.data ?? []) as CngState[]}
+        cngReadings={(cngReadingsRes.data ?? []) as CngReading[]}
       />
     </>
   )

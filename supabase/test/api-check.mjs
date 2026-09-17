@@ -178,6 +178,10 @@ const nozzles = (await mgr.from('v_nozzle_state').select('*').order('sort_order'
 const p1 = nozzles.find((n) => n.name === 'P1')
 const d1 = nozzles.find((n) => n.name === 'D1')
 
+const stockBefore = Object.fromEntries(
+  (await mgr.from('v_tank_stock').select('name, book_stock_litres')).data
+    .map((t) => [t.name, Number(t.book_stock_litres)]))
+
 const readings = check(
   'upsert nozzle readings',
   await mgr.from('nozzle_readings').upsert(
@@ -201,7 +205,7 @@ check(
   await mgr.from('credit_sales').insert({
     business_date: today, shift_id: shift.id, customer_id: customer.id,
     fuel_type_id: d1.fuel_type_id, nozzle_id: d1.nozzle_id, staff_id: staff.id,
-    litres: 300, sale_rate: 89.2, slip_number: 'S-001',
+    quantity: 300, sale_rate: 89.2, slip_number: 'S-001',
   }).select().single(),
   (d) => (Math.abs(Number(d.amount) - 26760) > 0.01 ? `expected 26760, got ${d.amount}` : null),
 )
@@ -241,15 +245,12 @@ expect('  customer balance', balances.balance, 56760)
 expect('  unbilled', balances.unbilled_amount, 26760)
 
 const stock = check('v_tank_stock after sales', await mgr.from('v_tank_stock').select('*'))
-// Tanks were created with zero opening stock, so selling from them goes
-// negative — the arithmetic is what is under test, not the sign.
-const opening = Object.fromEntries(
-  (await mgr.from('tanks').select('name, opening_stock_litres')).data
-    .map((t) => [t.name, Number(t.opening_stock_litres)]))
-expect('  petrol stock', stock.find((t) => t.name === 'Tank 1 Petrol').book_stock_litres,
-       opening['Tank 1 Petrol'] - 198)
-expect('  diesel stock', stock.find((t) => t.name === 'Tank 2 Diesel').book_stock_litres,
-       opening['Tank 2 Diesel'] - 500)
+// What this run moved, not the absolute level — the database carries history.
+// 2 of the 200 petrol litres were test fuel poured back, so stock falls 198.
+const moved = (name) =>
+  Number(stock.find((t) => t.name === name).book_stock_litres) - stockBefore[name]
+expect('  petrol stock fell by the litres sold', moved('Tank 1 Petrol'), -198)
+expect('  diesel stock fell by the litres sold', moved('Tank 2 Diesel'), -500)
 
 /* ---------------------------------------- embedded joins the pages use --- */
 console.log('\n--- embedded selects ---')
@@ -357,11 +358,121 @@ for (const table of ['expenses', 'bank_deposits', 'payments', 'invoices', 'fuel_
 check('counter writes a slip',
   await counter.from('credit_sales').insert({
     business_date: today, customer_id: customer.id,
-    fuel_type_id: d1.fuel_type_id, litres: 50, sale_rate: 89.2, slip_number: 'S-002',
+    fuel_type_id: d1.fuel_type_id, quantity: 50, sale_rate: 89.2, slip_number: 'S-002',
   }).select())
 {
   const { error } = await counter.from('expenses').insert({ category: 'x', amount: 1 })
   assert(error, 'counter blocked from expenses', 'counter wrote an expense')
+}
+
+/* ─────────────────────────────── the four new requirements ───────────── */
+console.log('\n--- three fuels, four payment modes ---')
+
+{
+  const own = await signIn('father@test.in')
+
+  // CNG: sold by the kilogram, no tank, no dip.
+  const { data: disp } = await mgr.from('v_cng_state').select('*').limit(1).single()
+  assert(disp?.name != null, 'a CNG dispenser exists', 'seed a CNG dispenser first')
+
+  const { data: cng, error: cngErr } = await mgr.from('cng_readings').upsert(
+    { shift_id: shift.id, dispenser_id: disp.dispenser_id, staff_id: staff.id,
+      opening_reading: 5000, closing_reading: 5100, test_kg: 0, sale_rate: 79.67 },
+    { onConflict: 'shift_id,dispenser_id' }).select().single()
+  assert(!cngErr, 'record a CNG reading', cngErr?.message ?? '')
+  expect('  100 kg at 79.67', cng?.amount, 7967)
+
+  // The BPCL card is a fourth collection mode, not udhaar.
+  const { error: collErr } = await mgr.from('shift_collections').upsert(
+    { shift_id: shift.id, staff_id: staff.id,
+      cash_amount: 30000, upi_amount: 6947, card_amount: 0, bpcl_amount: 7967 },
+    { onConflict: 'shift_id,staff_id' })
+  assert(!collErr, 'record a BPCL card handover', collErr?.message ?? '')
+
+  const d = check('day_summary with CNG and BPCL', await mgr.rpc('day_summary', { p_date: today }))
+  expect('  meter sales include CNG', d.meter_sales, 63707 + 7967)
+  expect('  kg sold', d.kg_sold, 100)
+  expect('  CNG sales split out', d.cng_sales, 7967)
+  expect('  BPCL collected', d.collected_bpcl, 7967)
+  expect('  collected across four modes', d.collected_total, 30000 + 6947 + 7967)
+  // The rule, not a fixed figure: only cash reaches the box. Asserting the
+  // identity holds however much else the day contains.
+  const boxByRule =
+    d.opening_cash + d.collected_cash + d.receipts_cash
+    - d.expenses_cash - d.staff_paid_cash - d.deposited
+  expect('  cash box follows only the cash', d.expected_cash, boxByRule)
+  assert(
+    d.collected_upi > 0 && d.collected_bpcl > 0 &&
+      Math.abs(d.expected_cash - boxByRule) < 0.01,
+    '  UPI and BPCL are collected but not in the box',
+    `upi ${d.collected_upi}, bpcl ${d.collected_bpcl}`)
+
+  const byFuel = check('sales_by_fuel reports each unit',
+    await mgr.rpc('sales_by_fuel', { p_from: today, p_to: today }))
+  const cngRow = byFuel.find((f) => f.fuel_name === 'CNG')
+  assert(cngRow?.unit === 'kg', '  CNG reports in kilograms', `got ${cngRow?.unit}`)
+  expect('  CNG quantity', cngRow?.quantity, 100)
+
+  // A CNG slip on udhaar: quantity is kilograms, not litres.
+  const { data: cngSlip, error: slipErr } = await mgr.from('credit_sales').insert({
+    business_date: today, customer_id: customer.id, fuel_type_id: disp.fuel_type_id,
+    quantity: 12, sale_rate: 79.67, slip_number: 'CNG-1' }).select().single()
+  assert(!slipErr, 'a CNG credit slip', slipErr?.message ?? '')
+  expect('  12 kg at 79.67', cngSlip?.amount, 956.04)
+
+  // Gas cost is margin, so it is the owner's alone.
+  const { data: sup } = await own.from('cng_supply').upsert(
+    { supply_date: today, scm_received: 4000 }, { onConflict: 'station_id,supply_date' })
+    .select().single()
+  await own.from('cng_supply_costs').upsert(
+    { supply_id: sup.id, rate_per_scm: 48.5, amount: 194000 }, { onConflict: 'supply_id' })
+  const { data: mgrGas } = await mgr.from('cng_supply_costs').select('*')
+  assert(mgrGas?.length === 0, 'manager sees no gas cost', `saw ${mgrGas?.length}`)
+  const { data: ownGas } = await own.from('cng_supply_costs').select('*')
+  assert((ownGas?.length ?? 0) > 0, 'owner sees the gas cost', 'owner saw none')
+}
+
+console.log('\n--- stock every shift, and the tanker paperwork ---')
+{
+  const own = await signIn('father@test.in')
+  const { data: tank } = await mgr.from('tanks').select('id, fuel_type_id')
+    .eq('name', 'Tank 2 Diesel').single()
+
+  // A dip now belongs to a shift, so a tank can be dipped each shift.
+  const dip = async (shiftId, litres) => mgr.from('tank_dips').upsert(
+    { tank_id: tank.id, business_date: today, shift_id: shiftId, dip_litres: litres },
+    { onConflict: 'station_id,tank_id,business_date,shift_id' }).select()
+  const a = await dip(shift.id, 7480)
+  const b = await dip(null, 7450)
+  assert(!a.error && !b.error, 'a shift dip and a day-end dip coexist',
+         a.error?.message ?? b.error?.message ?? '')
+
+  // Ordered · challan · what reached the tank, kept apart.
+  const { data: del, error: delErr } = await own.from('fuel_purchases').insert({
+    tank_id: tank.id, fuel_type_id: tank.fuel_type_id, delivery_date: today,
+    tanker_number: 'GJ18TT1234', ordered_litres: 6000, invoice_litres: 6000,
+    tanker_dip_litres: 5980, litres: 5970, seal_number: 'SL-1', seals_intact: true,
+    water_check_ok: true, density: 0.832, temperature_c: 31.5 }).select().single()
+  assert(!delErr, 'record a delivery with its paperwork', delErr?.message ?? '')
+
+  const { data: view } = await own.from('v_deliveries').select('*').eq('id', del.id).single()
+  expect('  short against the challan', view.invoice_variance, -30)
+  expect('  short against the order', view.order_variance, -30)
+  expect('  tanker dip at rest kept', view.tanker_dip_litres, 5980)
+
+  // VAT lives with the cost, where the manager cannot read it.
+  await own.from('fuel_purchase_costs').insert({
+    purchase_id: del.id, supplier: 'BPCL', rate_per_litre: 84,
+    basic_amount: 501480, vat_rate: 25, vat_amount: 125370, amount: 626850 })
+  const { data: ownVat } = await own.from('fuel_purchase_costs')
+    .select('vat_amount').eq('purchase_id', del.id).single()
+  expect('  owner sees the VAT', ownVat.vat_amount, 125370)
+  const { data: mgrVat } = await mgr.from('fuel_purchase_costs')
+    .select('*').eq('purchase_id', del.id)
+  assert(mgrVat?.length === 0, '  manager sees no VAT or cost', `saw ${mgrVat?.length}`)
+
+  await own.from('fuel_purchase_costs').delete().eq('purchase_id', del.id)
+  await own.from('fuel_purchases').delete().eq('id', del.id)
 }
 
 console.log(`\n${failures === 0 ? '================  API CHECK PASSED  ================' : `${failures} FAILURE(S)`}`)

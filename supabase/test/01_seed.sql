@@ -39,13 +39,19 @@ insert into profiles (id, station_id, full_name, role) values
   ('aaaaaaaa-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'Counter', 'counter'),
   ('bbbbbbbb-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'Rival',   'owner');
 
-insert into fuel_types (id, station_id, name, name_gu, sort_order) values
-  ('f1111111-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Petrol', 'પેટ્રોલ', 1),
-  ('f1111111-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Diesel', 'ડીઝલ',  2);
+insert into fuel_types (id, station_id, name, name_gu, sort_order, unit) values
+  ('f1111111-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Petrol', 'પેટ્રોલ', 1, 'L'),
+  ('f1111111-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Diesel', 'ડીઝલ',  2, 'L'),
+  ('f1111111-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'CNG',    'સીએનજી', 3, 'kg');
 
 insert into fuel_prices (station_id, fuel_type_id, sale_rate, effective_from) values
   ('11111111-1111-1111-1111-111111111111', 'f1111111-0000-0000-0000-000000000001', 96.500, now() - interval '2 days'),
-  ('11111111-1111-1111-1111-111111111111', 'f1111111-0000-0000-0000-000000000002', 89.200, now() - interval '2 days');
+  ('11111111-1111-1111-1111-111111111111', 'f1111111-0000-0000-0000-000000000002', 89.200, now() - interval '2 days'),
+  ('11111111-1111-1111-1111-111111111111', 'f1111111-0000-0000-0000-000000000003', 79.670, now() - interval '2 days');
+
+-- CNG has no tank and no dip: Gujarat Gas pipes it in, metered in SCM.
+insert into cng_dispensers (id, station_id, fuel_type_id, name, sort_order) values
+  ('11111111-0000-0000-0000-0000000000c9', '11111111-1111-1111-1111-111111111111', 'f1111111-0000-0000-0000-000000000003', 'C1', 1);
 
 insert into tanks (id, station_id, fuel_type_id, name, capacity_litres, opening_stock_litres, opening_stock_date) values
   ('11111111-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'f1111111-0000-0000-0000-000000000001', 'Tank 1 Petrol', 10000, 5000, current_date - 1),
@@ -74,11 +80,17 @@ insert into nozzle_readings (station_id, shift_id, nozzle_id, staff_id, opening_
   ('11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-0000000000d1', '11111111-0000-0000-0000-00000000000f', 5000, 5500, 0, 89.200);
 
 -- 300 of those diesel litres went out on udhaar, they are not extra sales.
-insert into credit_sales (station_id, business_date, shift_id, customer_id, vehicle_id, vehicle_number, fuel_type_id, nozzle_id, staff_id, litres, sale_rate, slip_number) values
+insert into credit_sales (station_id, business_date, shift_id, customer_id, vehicle_id, vehicle_number, fuel_type_id, nozzle_id, staff_id, quantity, sale_rate, slip_number) values
   ('11111111-1111-1111-1111-111111111111', current_date, '11111111-0000-0000-0000-0000000000c1', 'c1111111-0000-0000-0000-000000000001', 'c1111111-0000-0000-0000-00000000000e', 'GJ01AB1234', 'f1111111-0000-0000-0000-000000000002', '11111111-0000-0000-0000-0000000000d1', '11111111-0000-0000-0000-00000000000f', 300, 89.200, 'S-001');
 
-insert into shift_collections (station_id, shift_id, staff_id, cash_amount, upi_amount) values
-  ('11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-00000000000f', 30000, 6947);
+-- 100 kg of CNG at 79.670 = 7,967.00, paid for with a BPCL card. It is money
+-- collected, but it never reaches the cash box — which is what the assertions
+-- below exist to prove.
+insert into cng_readings (station_id, shift_id, dispenser_id, staff_id, opening_reading, closing_reading, test_kg, sale_rate) values
+  ('11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-0000000000c9', '11111111-0000-0000-0000-00000000000f', 5000, 5100, 0, 79.670);
+
+insert into shift_collections (station_id, shift_id, staff_id, cash_amount, upi_amount, bpcl_amount) values
+  ('11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-00000000000f', 30000, 6947, 7967);
 
 insert into expenses (station_id, business_date, category, description, amount, mode) values
   ('11111111-1111-1111-1111-111111111111', current_date, 'Repairs', 'Nozzle hose', 500, 'cash');
@@ -90,10 +102,13 @@ insert into bank_deposits (station_id, deposit_date, bank_name, amount, slip_ref
   ('11111111-1111-1111-1111-111111111111', current_date, 'Bank of Baroda', 40000, 'SLIP-77', 'aaaaaaaa-0000-0000-0000-000000000003');
 
 -- A tanker came in, and its cost is recorded separately (owner eyes only).
-insert into fuel_purchases (id, station_id, tank_id, fuel_type_id, delivery_date, tanker_number, litres) values
-  ('11111111-0000-0000-0000-0000000000ab', '11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-00000000000b', 'f1111111-0000-0000-0000-000000000002', current_date, 'GJ18TT9999', 6000);
-insert into fuel_purchase_costs (purchase_id, station_id, supplier, rate_per_litre, amount) values
-  ('11111111-0000-0000-0000-0000000000ab', '11111111-1111-1111-1111-111111111111', 'IOCL', 84.000, 504000);
+insert into fuel_purchases (id, station_id, tank_id, fuel_type_id, delivery_date, tanker_number,
+                            ordered_litres, invoice_litres, tanker_dip_litres, litres,
+                            seal_number, seals_intact, water_check_ok, density, temperature_c) values
+  ('11111111-0000-0000-0000-0000000000ab', '11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-00000000000b', 'f1111111-0000-0000-0000-000000000002', current_date, 'GJ18TT9999',
+   6000, 6000, 5980, 5970, 'SL-4471', true, true, 0.832, 31.5);
+insert into fuel_purchase_costs (purchase_id, station_id, supplier, rate_per_litre, basic_amount, vat_rate, vat_amount, amount) values
+  ('11111111-0000-0000-0000-0000000000ab', '11111111-1111-1111-1111-111111111111', 'BPCL', 84.000, 401184, 25.000, 100296, 501480);
 
 insert into day_closings (station_id, business_date, opening_cash, counted_cash, status) values
   ('11111111-1111-1111-1111-111111111111', current_date, 0, 9500, 'submitted');

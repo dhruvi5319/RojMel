@@ -11,9 +11,9 @@ export async function createCreditSale(
 ): Promise<FormState> {
   const supabase = await createClient()
 
-  const litres = Number(data.get('litres'))
+  const qty = Number(data.get('quantity'))
   const sale_rate = Number(data.get('sale_rate'))
-  if (!(litres > 0)) return { error: 'Enter how many litres went out.' }
+  if (!(qty > 0)) return { error: 'Enter how much fuel went out.' }
   if (!(sale_rate > 0)) return { error: 'Enter the rate per litre.' }
 
   const vehicle_id = String(data.get('vehicle_id') ?? '') || null
@@ -42,7 +42,7 @@ export async function createCreditSale(
     slip_number: String(data.get('slip_number') ?? '').trim() || null,
     driver_name: String(data.get('driver_name') ?? '').trim() || null,
     odometer: data.get('odometer') ? Number(data.get('odometer')) : null,
-    litres,
+    quantity: qty,
     sale_rate,
   })
 
@@ -80,9 +80,9 @@ export async function updateCreditSale(
   data: FormData,
 ): Promise<FormState> {
   const supabase = await createClient()
-  const litres = Number(data.get('litres'))
+  const qty = Number(data.get('quantity'))
   const sale_rate = Number(data.get('sale_rate'))
-  if (!(litres > 0)) return { error: 'Enter how many litres went out.' }
+  if (!(qty > 0)) return { error: 'Enter how much fuel went out.' }
   if (!(sale_rate > 0)) return { error: 'Enter the rate per litre.' }
 
   const outcome = changed(
@@ -90,7 +90,7 @@ export async function updateCreditSale(
       .from('credit_sales')
       .update({
         business_date: String(data.get('business_date')),
-        litres,
+        quantity: qty,
         sale_rate,
         vehicle_number:
           String(data.get('vehicle_number') ?? '').trim().toUpperCase() || null,

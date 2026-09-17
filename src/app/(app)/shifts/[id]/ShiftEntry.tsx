@@ -6,15 +6,30 @@ import { Check, Save, TriangleAlert } from 'lucide-react'
 import { useT } from '@/lib/i18n/client'
 import { litres as fmtLitres, money } from '@/lib/format'
 import type {
-  NozzleReading, NozzleState, Shift, ShiftCollection, Staff,
+  CngReading, CngState, NozzleReading, NozzleState, Shift, ShiftCollection, Staff,
 } from '@/lib/database.types'
 import {
   Alert, Badge, Button, Card, CardHeader, Field, NumberInput, Select, Stat,
 } from '@/components/ui'
-import { saveShift, setShiftStatus, type CollectionInput, type ReadingInput } from '../actions'
+import {
+  saveShift, setShiftStatus,
+  type CngReadingInput, type CollectionInput, type ReadingInput,
+} from '../actions'
 
 interface Row {
   nozzle_id: string
+  name: string
+  fuel_name: string
+  opening: string
+  closing: string
+  test: string
+  rate: string
+  staff_id: string
+}
+
+/** A CNG dispenser row. Same shape as a nozzle, counted in kilograms. */
+interface GasRow {
+  dispenser_id: string
   name: string
   fuel_name: string
   opening: string
@@ -28,8 +43,9 @@ interface Handover {
   staff_id: string
   name: string
   cash: string
-  upi: string
   card: string
+  upi: string
+  bpcl: string
 }
 
 const n = (v: string) => (v.trim() === '' ? 0 : Number(v))
@@ -42,6 +58,8 @@ export function ShiftEntry({
   collections,
   creditTotal,
   locked,
+  cngDispensers,
+  cngReadings,
 }: {
   shift: Shift
   nozzles: NozzleState[]
@@ -50,6 +68,8 @@ export function ShiftEntry({
   collections: ShiftCollection[]
   creditTotal: number
   locked: boolean
+  cngDispensers: CngState[]
+  cngReadings: CngReading[]
 }) {
   const t = useT()
   const router = useRouter()
@@ -74,6 +94,22 @@ export function ShiftEntry({
     }),
   )
 
+  const [gas, setGas] = useState<GasRow[]>(() =>
+    cngDispensers.map((d) => {
+      const existing = cngReadings.find((r) => r.dispenser_id === d.dispenser_id)
+      return {
+        dispenser_id: d.dispenser_id,
+        name: d.name,
+        fuel_name: d.fuel_name,
+        opening: String(existing?.opening_reading ?? d.last_closing ?? 0),
+        closing: existing ? String(existing.closing_reading) : '',
+        test: String(existing?.test_kg ?? 0),
+        rate: String(existing?.sale_rate ?? d.sale_rate ?? 0),
+        staff_id: existing?.staff_id ?? '',
+      }
+    }),
+  )
+
   const [handover, setHandover] = useState<Handover[]>(() =>
     staff.map((s) => {
       const existing = collections.find((c) => c.staff_id === s.id)
@@ -81,8 +117,9 @@ export function ShiftEntry({
         staff_id: s.id,
         name: s.name,
         cash: existing ? String(existing.cash_amount) : '',
-        upi: existing ? String(existing.upi_amount) : '',
         card: existing ? String(existing.card_amount) : '',
+        upi: existing ? String(existing.upi_amount) : '',
+        bpcl: existing ? String(existing.bpcl_amount) : '',
       }
     }),
   )
@@ -97,17 +134,31 @@ export function ShiftEntry({
       litres += l
       amount += l * n(r.rate)
     }
+    // Kilograms do not add to litres, but their rupees add to the day.
+    let kg = 0
+    for (const g of gas) {
+      if (g.closing.trim() === '') continue
+      const k = n(g.closing) - n(g.opening) - n(g.test)
+      if (k <= 0) continue
+      kg += k
+      amount += k * n(g.rate)
+    }
     const collected = handover.reduce(
-      (sum, h) => sum + n(h.cash) + n(h.upi) + n(h.card),
+      (sum, h) => sum + n(h.cash) + n(h.card) + n(h.upi) + n(h.bpcl),
       0,
     )
     const expected = amount - creditTotal
-    return { litres, amount, collected, expected, diff: expected - collected }
-  }, [rows, handover, creditTotal])
+    return { litres, kg, amount, collected, expected, diff: expected - collected }
+  }, [rows, gas, handover, creditTotal])
 
   function setRow(i: number, patch: Partial<Row>) {
     setSaved(false)
     setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  }
+
+  function setGasRow(i: number, patch: Partial<GasRow>) {
+    setSaved(false)
+    setGas((prev) => prev.map((g, j) => (j === i ? { ...g, ...patch } : g)))
   }
 
   function setHand(i: number, patch: Partial<Handover>) {
@@ -143,12 +194,25 @@ export function ShiftEntry({
     const payloadCollections: CollectionInput[] = handover.map((h) => ({
       staff_id: h.staff_id,
       cash_amount: n(h.cash),
-      upi_amount: n(h.upi),
       card_amount: n(h.card),
+      upi_amount: n(h.upi),
+      bpcl_amount: n(h.bpcl),
     }))
 
+    const payloadCng: CngReadingInput[] = gas.map((g) => ({
+      dispenser_id: g.dispenser_id,
+      staff_id: g.staff_id || null,
+      opening_reading: n(g.opening),
+      closing_reading: g.closing.trim() === '' ? 0 : n(g.closing),
+      test_kg: n(g.test),
+      sale_rate: n(g.rate),
+    }))
+    const cleanedCng = payloadCng.map((c) =>
+      c.closing_reading === 0 ? { ...c, opening_reading: 0 } : c,
+    )
+
     startTransition(async () => {
-      const result = await saveShift(shift.id, cleaned, payloadCollections)
+      const result = await saveShift(shift.id, cleaned, payloadCollections, cleanedCng)
       if (result.error) {
         setError(result.error)
         return
@@ -168,7 +232,7 @@ export function ShiftEntry({
   return (
     <div className="flex flex-col gap-4">
       {/* ------------------------------------------------------ readings -- */}
-      <Card>
+      <Card role="group" aria-label="Nozzle readings">
         <CardHeader title={t('shift.readings')} subtitle={t('shift.testHint')} />
         <div className="flex flex-col divide-y divide-divider">
           {rows.map((r, i) => {
@@ -243,8 +307,91 @@ export function ShiftEntry({
         </div>
       </Card>
 
+      {/* ----------------------------------------------------------- CNG -- */}
+      {gas.length > 0 ? (
+        <Card role="group" aria-label="CNG readings">
+          <CardHeader
+            title={`${t('shift.readings')} — CNG`}
+            subtitle={t('cng.kgHint')}
+          />
+          <div className="flex flex-col divide-y divide-divider">
+            {gas.map((g, i) => {
+              const k =
+                g.closing.trim() === '' ? 0 : n(g.closing) - n(g.opening) - n(g.test)
+              return (
+                <div key={g.dispenser_id} className="p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-semibold">{g.name}</span>
+                      <Badge tone="ok">{g.fuel_name}</Badge>
+                    </div>
+                    <div className="tabular text-right">
+                      <div className="font-semibold">
+                        {Math.max(0, k).toFixed(2)} kg
+                      </div>
+                      <div className="text-sm text-neutral-600">
+                        {money(Math.max(0, k) * n(g.rate))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                    <Field label={t('shift.opening')}>
+                      <NumberInput
+                        step="0.001"
+                        value={g.opening}
+                        disabled={locked}
+                        onChange={(e) => setGasRow(i, { opening: e.target.value })}
+                      />
+                    </Field>
+                    <Field label={t('shift.closing')}>
+                      <NumberInput
+                        step="0.001"
+                        value={g.closing}
+                        disabled={locked}
+                        onChange={(e) => setGasRow(i, { closing: e.target.value })}
+                      />
+                    </Field>
+                    <Field label={t('cng.testKg')}>
+                      <NumberInput
+                        step="0.001"
+                        value={g.test}
+                        disabled={locked}
+                        onChange={(e) => setGasRow(i, { test: e.target.value })}
+                      />
+                    </Field>
+                    <Field label={t('common.rate')}>
+                      <NumberInput
+                        step="0.001"
+                        value={g.rate}
+                        disabled={locked}
+                        onChange={(e) => setGasRow(i, { rate: e.target.value })}
+                      />
+                    </Field>
+                    <Field label={t('shift.filler')}>
+                      <Select
+                        value={g.staff_id}
+                        disabled={locked}
+                        onChange={(e) => setGasRow(i, { staff_id: e.target.value })}
+                      >
+                        <option value="">—</option>
+                        {staff.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      ) : null}
+
       {/* ------------------------------------------------------ handover -- */}
-      <Card>
+      <Card role="group" aria-label="Handover">
         <CardHeader
           title={t('shift.collections')}
           subtitle={`${t('dash.cashExpected')}: ${money(totals.expected)}`}
@@ -254,34 +401,43 @@ export function ShiftEntry({
         ) : (
           <div className="flex flex-col divide-y divide-divider">
             {handover.map((h, i) => (
-              <div key={h.staff_id} className="grid grid-cols-3 gap-3 p-4 sm:grid-cols-4">
-                <div className="col-span-3 flex items-center font-medium sm:col-span-1">
-                  {h.name}
+              <div key={h.staff_id} className="p-4">
+                <div className="mb-2.5 font-semibold">{h.name}</div>
+                {/* cash · ATM · UPI · BPCL card — the four ways money arrives */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Field label={t('mode.cash')}>
+                    <NumberInput
+                      step="0.01"
+                      value={h.cash}
+                      disabled={locked}
+                      onChange={(e) => setHand(i, { cash: e.target.value })}
+                    />
+                  </Field>
+                  <Field label={t('mode.card')}>
+                    <NumberInput
+                      step="0.01"
+                      value={h.card}
+                      disabled={locked}
+                      onChange={(e) => setHand(i, { card: e.target.value })}
+                    />
+                  </Field>
+                  <Field label={t('mode.upi')}>
+                    <NumberInput
+                      step="0.01"
+                      value={h.upi}
+                      disabled={locked}
+                      onChange={(e) => setHand(i, { upi: e.target.value })}
+                    />
+                  </Field>
+                  <Field label={t('mode.bpcl_card')}>
+                    <NumberInput
+                      step="0.01"
+                      value={h.bpcl}
+                      disabled={locked}
+                      onChange={(e) => setHand(i, { bpcl: e.target.value })}
+                    />
+                  </Field>
                 </div>
-                <Field label={t('mode.cash')}>
-                  <NumberInput
-                    step="0.01"
-                    value={h.cash}
-                    disabled={locked}
-                    onChange={(e) => setHand(i, { cash: e.target.value })}
-                  />
-                </Field>
-                <Field label={t('mode.upi')}>
-                  <NumberInput
-                    step="0.01"
-                    value={h.upi}
-                    disabled={locked}
-                    onChange={(e) => setHand(i, { upi: e.target.value })}
-                  />
-                </Field>
-                <Field label={t('mode.card')}>
-                  <NumberInput
-                    step="0.01"
-                    value={h.card}
-                    disabled={locked}
-                    onChange={(e) => setHand(i, { card: e.target.value })}
-                  />
-                </Field>
               </div>
             ))}
           </div>
@@ -290,7 +446,11 @@ export function ShiftEntry({
 
       {/* -------------------------------------------------------- totals -- */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label={t('common.litres')} value={fmtLitres(totals.litres)} />
+        <Stat
+          label={t('common.quantity')}
+          value={fmtLitres(totals.litres)}
+          hint={totals.kg > 0 ? `${totals.kg.toFixed(2)} kg CNG` : undefined}
+        />
         <Stat label={t('day.meterSales')} value={money(totals.amount)} tone="accent" />
         <Stat
           label={t('dash.creditGiven')}

@@ -1,7 +1,7 @@
 import { requireOwner } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, litres, money, monthEnd, monthStart, todayIST } from '@/lib/format'
+import { formatDate, litres, money, monthEnd, monthStart, quantity, todayIST } from '@/lib/format'
 import type { MarginReport, SalesByDay, SalesByFuel } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th,
@@ -124,7 +124,7 @@ export default async function ReportsPage({
               <thead>
                 <tr>
                   <Th>{t('common.fuel')}</Th>
-                  <Th className="text-right">{t('common.litres')}</Th>
+                  <Th className="text-right">{t('common.quantity')}</Th>
                   <Th className="text-right">{t('rep.salesValue')}</Th>
                   <Th className="text-right">{t('common.rate')}</Th>
                 </tr>
@@ -133,7 +133,7 @@ export default async function ReportsPage({
                 {byFuel.map((f) => (
                   <tr key={f.fuel_type_id}>
                     <Td className="font-medium">{f.fuel_name}</Td>
-                    <Td className="tabular text-right">{litres(f.litres_sold)}</Td>
+                    <Td className="tabular text-right">{quantity(f.quantity, f.unit)}</Td>
                     <Td className="tabular text-right font-semibold">
                       {money(f.sales_value)}
                     </Td>

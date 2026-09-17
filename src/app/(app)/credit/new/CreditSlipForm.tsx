@@ -38,10 +38,11 @@ export function CreditSlipForm({
   const [customerId, setCustomerId] = useState(preselectedCustomer)
   const [fuelId, setFuelId] = useState(fuels[0]?.id ?? '')
   const [rate, setRate] = useState('')
-  const [litres, setLitres] = useState('')
+  const [qty, setQty] = useState('')
   const [amount, setAmount] = useState('')
 
   const customer = customers.find((c) => c.customer_id === customerId)
+  const unit = fuels.find((f) => f.id === fuelId)?.unit ?? 'L'
   const customerVehicles = vehicles.filter((v) => v.customer_id === customerId)
 
   // The live rate for the chosen fuel, taken from whichever nozzle serves it.
@@ -54,14 +55,14 @@ export function CreditSlipForm({
 
   /* Drivers ask for fuel both ways — "40 litres" and "two thousand rupees
      worth". Whichever box is typed in, the other follows. */
-  function onLitres(value: string) {
-    setLitres(value)
+  function onQuantity(value: string) {
+    setQty(value)
     setAmount(value.trim() === '' ? '' : (n(value) * effectiveRate).toFixed(2))
   }
 
   function onAmount(value: string) {
     setAmount(value)
-    setLitres(
+    setQty(
       value.trim() === '' || effectiveRate <= 0
         ? ''
         : (n(value) / effectiveRate).toFixed(3),
@@ -71,10 +72,10 @@ export function CreditSlipForm({
   function onRate(value: string) {
     setRate(value)
     const r = value.trim() === '' ? (liveRate ?? 0) : n(value)
-    if (litres.trim() !== '') setAmount((n(litres) * r).toFixed(2))
+    if (qty.trim() !== '') setAmount((n(qty) * r).toFixed(2))
   }
 
-  const newBalance = (customer?.balance ?? 0) + n(litres) * effectiveRate
+  const newBalance = (customer?.balance ?? 0) + n(qty) * effectiveRate
   const overLimit =
     !!customer && customer.credit_limit > 0 && newBalance > customer.credit_limit
 
@@ -184,13 +185,16 @@ export function CreditSlipForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t('common.litres')} required>
+        <Field
+          label={unit === 'kg' ? `${t('common.quantity')} (kg)` : t('common.litres')}
+          required
+        >
           <NumberInput
-            name="litres"
+            name="quantity"
             step="0.001"
             required
-            value={litres}
-            onChange={(e) => onLitres(e.target.value)}
+            value={qty}
+            onChange={(e) => onQuantity(e.target.value)}
           />
         </Field>
         <Field label={t('common.amount')} hint="Type either one">
@@ -244,7 +248,7 @@ export function CreditSlipForm({
       <div className="flex items-center justify-between gap-4 rounded-lg border border-divider bg-neutral-200 px-4 py-3">
         <span className="font-medium">{t('common.total')}</span>
         <span className="tabular text-xl font-semibold">
-          {money(n(litres) * effectiveRate)}
+          {money(n(qty) * effectiveRate)}
         </span>
       </div>
 

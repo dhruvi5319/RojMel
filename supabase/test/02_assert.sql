@@ -3,9 +3,14 @@
 --
 --    P1 petrol  1000 -> 1200, 2 L test poured back  = 198 L @ 96.50 = 19,107.00
 --    D1 diesel  5000 -> 5500                        = 500 L @ 89.20 = 44,600.00
---    meter sales                                                    = 63,707.00
+--    C1 cng     5000 -> 5100                        = 100 kg @ 79.67 =  7,967.00
+--    meter sales                                                    = 71,674.00
 --    of which on udhaar: 300 L diesel @ 89.20                       = 26,760.00
---    so cash/upi/card owed by the filler                            = 36,947.00
+--    so owed by the filler across all four modes                    = 44,914.00
+--    handed over: 30,000 cash + 6,947 UPI + 7,967 BPCL card         = 44,914.00
+--
+--  The BPCL card pays for the CNG, so the day tallies — but the cash box is
+--  unchanged by it, which is the point of the 'cash box' assertions below.
 -- ============================================================================
 \set ON_ERROR_STOP on
 \set QUIET on
@@ -17,15 +22,21 @@ set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
 
 select assert_eq(auth_role()::text, 'manager', 'manager role resolves');
 
-select assert_eq((day_summary(current_date)->>'meter_sales')::numeric,     63707.00::numeric, 'meter sales');
+select assert_eq((day_summary(current_date)->>'meter_sales')::numeric,     71674.00::numeric, 'meter sales across all three fuels');
+select assert_eq((day_summary(current_date)->>'liquid_sales')::numeric,    63707.00::numeric, 'petrol and diesel');
+select assert_eq((day_summary(current_date)->>'cng_sales')::numeric,        7967.00::numeric, 'cng');
 select assert_eq((day_summary(current_date)->>'litres_sold')::numeric,       698.000::numeric, 'litres sold (test fuel excluded)');
+select assert_eq((day_summary(current_date)->>'kg_sold')::numeric,           100.000::numeric, 'kilograms of cng sold');
 select assert_eq((day_summary(current_date)->>'credit_sales')::numeric,    26760.00::numeric, 'credit sales');
-select assert_eq((day_summary(current_date)->>'counter_sales')::numeric,   36947.00::numeric, 'counter sales = meter - credit');
-select assert_eq((day_summary(current_date)->>'collected_total')::numeric, 36947.00::numeric, 'collected');
+select assert_eq((day_summary(current_date)->>'counter_sales')::numeric,   44914.00::numeric, 'counter sales = meter - credit');
+select assert_eq((day_summary(current_date)->>'collected_total')::numeric, 44914.00::numeric, 'collected across four modes');
+select assert_eq((day_summary(current_date)->>'collected_bpcl')::numeric,   7967.00::numeric, 'bpcl card collected');
 select assert_eq((day_summary(current_date)->>'collection_short')::numeric,    0.00::numeric, 'filler is square');
 select assert_eq((day_summary(current_date)->>'deposited')::numeric,       40000.00::numeric, 'deposited to bank');
--- 0 opening + 30,000 cash collected + 20,000 received - 500 expense - 40,000 banked
-select assert_eq((day_summary(current_date)->>'expected_cash')::numeric,    9500.00::numeric, 'cash that should be in the box');
+-- 0 opening + 30,000 cash collected + 20,000 received - 500 expense - 40,000 banked.
+-- The 6,947 UPI and 7,967 BPCL are collected but settle to the bank, so
+-- neither appears here. That is the whole reason the figure is unchanged.
+select assert_eq((day_summary(current_date)->>'expected_cash')::numeric,    9500.00::numeric, 'cash box ignores UPI and BPCL');
 select assert_eq((day_summary(current_date)->>'counted_cash')::numeric,     9500.00::numeric, 'cash actually counted');
 
 -- 50,000 brought over from the book + 26,760 taken - 20,000 paid
@@ -34,10 +45,11 @@ select assert_eq((select balance from v_customer_balances where name = 'Shree Tr
 select assert_eq((select unbilled_amount from v_customer_balances where name = 'Shree Transport'),
                  26760.00::numeric, 'unbilled slips');
 
--- Diesel: 8,000 opening + 6,000 delivered - 500 sold. The 300 credit litres
+-- Diesel: 8,000 opening + 5,970 actually decanted - 500 sold. Stock follows
+-- what reached the tank, not what the challan claimed. The 300 credit litres
 -- are part of that 500, not on top of it.
 select assert_eq((select book_stock_litres from v_tank_stock where name = 'Tank 2 Diesel'),
-                 13500.000::numeric, 'diesel stock');
+                 13470.000::numeric, 'diesel stock follows what was decanted');
 select assert_eq((select book_stock_litres from v_tank_stock where name = 'Tank 1 Petrol'),
                  4802.000::numeric, 'petrol stock (test fuel went back in)');
 
@@ -70,7 +82,7 @@ select assert_eq((select count(*) from invoices),      0::bigint, 'counter sees 
 select assert_eq((select count(*) from fuel_purchase_costs), 0::bigint, 'counter sees no costs');
 select assert_eq((select count(*) from v_customer_balances), 0::bigint, 'counter sees no balances');
 
-insert into credit_sales (business_date, customer_id, fuel_type_id, litres, sale_rate, slip_number)
+insert into credit_sales (business_date, customer_id, fuel_type_id, quantity, sale_rate, slip_number)
   values (current_date, 'c1111111-0000-0000-0000-000000000001',
           'f1111111-0000-0000-0000-000000000002', 50, 89.200, 'S-002');
 select assert_eq((select count(*) from credit_sales), 2::bigint, 'counter can write a slip');
@@ -136,8 +148,7 @@ select assert_eq((day_summary(current_date)->>'meter_sales')::numeric, 0::numeri
 select assert_eq((select count(*) from v_tank_stock), 0::bigint, 'rival sees none of our tanks');
 rollback;
 
-\echo ''
-\echo '================  ALL ASSERTIONS PASSED  ================'
+
 
 -- ------------------------------------------- nozzle state feeds the form ---
 begin;
@@ -164,13 +175,79 @@ begin;
 set local role authenticated;
 set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
 select assert_eq((select meter_sales from sales_by_day(current_date, current_date)),
-                 63707.00::numeric, 'sales_by_day matches the day');
+                 71674.00::numeric, 'sales_by_day matches the day');
 select assert_eq((select count(*) from sales_by_day(current_date - 6, current_date)),
                  7::bigint, 'a week of rows even where nothing traded');
 select assert_eq((select sales_value from sales_by_fuel(current_date, current_date)
                    where fuel_name = 'Diesel'),
                  44600.00::numeric, 'diesel sales split out');
-select assert_eq((select litres_sold from sales_by_fuel(current_date, current_date)
+select assert_eq((select quantity from sales_by_fuel(current_date, current_date)
                    where fuel_name = 'Petrol'),
                  198.000::numeric, 'petrol litres split out');
+select assert_eq((select unit from sales_by_fuel(current_date, current_date)
+                   where fuel_name = 'CNG'), 'kg', 'cng reports in kilograms');
+select assert_eq((select quantity from sales_by_fuel(current_date, current_date)
+                   where fuel_name = 'CNG'), 100.000::numeric, 'cng quantity');
+select assert_eq((select sales_value from sales_by_fuel(current_date, current_date)
+                   where fuel_name = 'CNG'), 7967.00::numeric, 'cng value');
+select assert_eq((select kg_sold from sales_by_day(current_date, current_date)),
+                 100.000::numeric, 'sales_by_day carries kilograms');
 rollback;
+
+-- --------------------------------- stock every shift, and the tanker's dip --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+-- A dip now belongs to a shift, so a tank can be dipped more than once a day:
+-- one at the end of each shift, plus a day-end dip that belongs to no shift.
+insert into tank_dips (tank_id, business_date, shift_id, dip_litres)
+  values ('11111111-0000-0000-0000-00000000000b', current_date, null, 7450);
+insert into tank_dips (tank_id, business_date, shift_id, dip_litres)
+  values ('11111111-0000-0000-0000-00000000000b', current_date,
+          '11111111-0000-0000-0000-0000000000c1', 7480);
+select assert_eq((select count(*) from tank_dips
+                   where tank_id = '11111111-0000-0000-0000-00000000000b'),
+                 2::bigint, 'a day-end dip and a shift dip can coexist');
+select assert_raises($$
+  insert into tank_dips (tank_id, business_date, shift_id, dip_litres)
+  values ('11111111-0000-0000-0000-00000000000b', current_date,
+          '11111111-0000-0000-0000-0000000000c1', 9999) $$,
+  'the same shift cannot be dipped twice');
+select assert_raises($$
+  insert into tank_dips (tank_id, business_date, shift_id, dip_litres)
+  values ('11111111-0000-0000-0000-00000000000b', current_date, null, 9999) $$,
+  'nor the day-end dip');
+
+-- Ordered 6,000 · challan 6,000 · into the tank 5,970.
+select assert_eq((select invoice_variance from v_deliveries where tanker_number = 'GJ18TT9999'),
+                 -30.000::numeric, 'short against the challan');
+select assert_eq((select order_variance from v_deliveries where tanker_number = 'GJ18TT9999'),
+                 -30.000::numeric, 'short against the order');
+select assert_eq((select tanker_dip_litres from v_deliveries where tanker_number = 'GJ18TT9999'),
+                 5980.000::numeric, 'the tanker dip at rest is kept');
+select assert_eq((select seals_intact from v_deliveries where tanker_number = 'GJ18TT9999'),
+                 true, 'seal check is kept');
+
+-- Gas cost is margin, so the manager must not see it.
+select assert_eq((select count(*) from cng_supply_costs), 0::bigint,
+                 'manager sees no gas cost');
+rollback;
+
+-- ------------------------------------------------- VAT stays owner-only ----
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+select assert_eq((select vat_amount from fuel_purchase_costs limit 1),
+                 100296.00::numeric, 'owner sees the VAT on the purchase');
+rollback;
+
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+select assert_eq((select count(*) from fuel_purchase_costs), 0::bigint,
+                 'manager still sees no purchase cost or VAT');
+rollback;
+
+\echo ''
+\echo '================  ALL ASSERTIONS PASSED  ================'

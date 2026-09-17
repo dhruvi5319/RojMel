@@ -26,8 +26,8 @@ export function EditSlipForm({ slip }: { slip: CreditSale }) {
             defaultValue={slip.business_date}
           />
         </Field>
-        <Field label={t('common.litres')} required>
-          <NumberInput name="litres" step="0.001" required defaultValue={slip.litres} />
+        <Field label={t('common.quantity')} required>
+          <NumberInput name="quantity" step="0.001" required defaultValue={slip.quantity} />
         </Field>
         <Field label={t('common.rate')} required>
           <NumberInput

@@ -516,7 +516,7 @@ function SlipForm({
               fuel_type_id: fuelId,
               nozzle_id: nozzleId || null,
               staff_id: staffId,
-              litres: n(litres),
+              quantity: n(litres),
               sale_rate: Number(rate),
               slip_number: slipNo.trim() || null,
               driver_name: driver.trim() || null,

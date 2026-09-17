@@ -1,7 +1,7 @@
 import { requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, money, todayIST } from '@/lib/format'
+import { formatDate, money, monthEnd, todayIST } from '@/lib/format'
 import type { Staff, StaffPayment } from '@/lib/database.types'
 import {
   Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th,
@@ -37,7 +37,7 @@ export default async function StaffPage({
       .from('staff_payments')
       .select('*, staff(name)')
       .gte('payment_date', `${month}-01`)
-      .lte('payment_date', `${month}-31`)
+      .lte('payment_date', monthEnd(`${month}-01`))
       .order('payment_date', { ascending: false }),
   ])
 

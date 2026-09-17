@@ -1,7 +1,7 @@
 'use client'
 
 import { useT } from '@/lib/i18n/client'
-import type { FuelPurchase, FuelPurchaseCost } from '@/lib/database.types'
+import type { Delivery, FuelPurchaseCost } from '@/lib/database.types'
 import { Alert, Field, Input, NumberInput, Textarea } from '@/components/ui'
 import { ActionForm, SubmitButton } from '@/components/ActionForm'
 import { updateDelivery } from './actions'
@@ -11,7 +11,7 @@ export function EditDeliveryForm({
   cost,
   canSeeCost,
 }: {
-  delivery: FuelPurchase
+  delivery: Delivery
   cost: FuelPurchaseCost | null
   canSeeCost: boolean
 }) {
@@ -20,6 +20,30 @@ export function EditDeliveryForm({
   return (
     <ActionForm action={updateDelivery} onDone={t('counter.done')}>
       <input type="hidden" name="id" value={delivery.id} />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label={t('stock.ordered')}>
+          <NumberInput
+            name="ordered_litres"
+            step="0.001"
+            defaultValue={delivery.ordered_litres ?? ''}
+          />
+        </Field>
+        <Field label={t('stock.challan')}>
+          <NumberInput
+            name="invoice_litres"
+            step="0.001"
+            defaultValue={delivery.invoice_litres ?? ''}
+          />
+        </Field>
+        <Field label={t('stock.tankerDip')}>
+          <NumberInput
+            name="tanker_dip_litres"
+            step="0.001"
+            defaultValue={delivery.tanker_dip_litres ?? ''}
+          />
+        </Field>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-4">
         <Field label={t('common.date')} required>
           <Input
@@ -29,7 +53,7 @@ export function EditDeliveryForm({
             defaultValue={delivery.delivery_date}
           />
         </Field>
-        <Field label={t('common.litres')} required>
+        <Field label={t('stock.received')} required>
           <NumberInput name="litres" step="0.001" required defaultValue={delivery.litres} />
         </Field>
         <Field label={t('stock.tanker')}>
@@ -41,6 +65,13 @@ export function EditDeliveryForm({
         </Field>
         <Field label="Density">
           <NumberInput name="density" step="0.001" defaultValue={delivery.density ?? ''} />
+        </Field>
+        <Field label={t('stock.seal')}>
+          <Input
+            name="seal_number"
+            className="uppercase tabular"
+            defaultValue={delivery.seal_number ?? ''}
+          />
         </Field>
       </div>
 
@@ -61,6 +92,13 @@ export function EditDeliveryForm({
                 name="rate_per_litre"
                 step="0.001"
                 defaultValue={cost?.rate_per_litre ?? ''}
+              />
+            </Field>
+            <Field label={t('stock.vatRate')} hint={t('stock.vatHint')}>
+              <NumberInput
+                name="vat_rate"
+                step="0.001"
+                defaultValue={cost?.vat_rate ?? ''}
               />
             </Field>
           </div>

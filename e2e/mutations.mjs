@@ -303,18 +303,18 @@ await check('credit: write a slip', async () => {
   await selectContaining('select[name=customer_id]', `Transport ${STAMP}`)
   await page.waitForTimeout(400)
   await selectContaining('select[name=fuel_type_id]', 'Diesel')
-  await page.fill('input[name=litres]', '111')
+  await page.fill('input[name=quantity]', '111')
   await page.fill('input[name=slip_number]', `S${STAMP}`)
   await page.locator('form').locator('button[type=submit]').last().click()
   await page.waitForURL(/\/credit(\?|$)/, { timeout: 15000 })
   await reflects(`S${STAMP}`)
 })
 
-await check('credit: EDIT the slip litres', async () => {
+await check('credit: EDIT the slip quantity', async () => {
   await page.goto(`${BASE}/credit`)
   await openRowEditor(`S${STAMP}`)
   const f = page.locator('td[colspan] form')
-  await f.locator('input[name=litres]').fill('222')
+  await f.locator('input[name=quantity]').fill('222')
   await f.locator('input[name=driver_name]').fill(`Driver ${STAMP}`)
   await submitIn(f, 3000)
   await reflects('222.00 L')
@@ -343,6 +343,42 @@ await check('shifts: save meter readings', async () => {
   await page.waitForLoadState('networkidle')
   const val = await page.locator('input[type=number]').nth(1).inputValue()
   if (Number(val) !== 9999) throw new Error(`closing reading did not persist, got "${val}"`)
+})
+
+await check('shifts: CNG in kilograms, and a BPCL handover', async () => {
+  await page.goto(`${BASE}/shifts`)
+  await page.locator('a', { hasText: 'Meter readings' }).first().click()
+  await page.waitForURL(/\/shifts\/[0-9a-f-]{36}/, { timeout: 15000 })
+
+  const cng = page.locator('[aria-label="CNG readings"]')
+  if ((await cng.count()) === 0) throw new Error('no CNG section on the shift screen')
+
+  // the first dispenser: 5,000 -> 5,100 kg
+  const nums = cng.locator('input[type=number]')
+  await nums.nth(0).fill('5000')
+  await nums.nth(1).fill('5100')
+  await page.waitForTimeout(400)
+  if (!(await body()).includes('100.00 kg')) throw new Error('kilograms not computed')
+
+  // the fourth collection column
+  const bpcl = page.locator('[aria-label="Handover"] label', { hasText: 'BPCL card' }).first()
+  if ((await bpcl.count()) === 0) throw new Error('no BPCL card field in the handover')
+  await bpcl.locator('input[type=number]').fill('7967')
+
+  await page.locator('button', { hasText: /^Save$/ }).first().click()
+  await page.waitForTimeout(3500)
+  await page.reload()
+  await page.waitForLoadState('networkidle')
+  const t2 = await body()
+  if (!t2.includes('100.00 kg')) throw new Error('CNG reading did not persist')
+  if (!t2.includes('7,967')) throw new Error('BPCL handover did not persist')
+})
+
+await check('day close: CNG and BPCL both show', async () => {
+  await page.goto(`${BASE}/day`)
+  const t2 = await body()
+  if (!t2.includes('BPCL card')) throw new Error('no BPCL line on day close')
+  if (!/kg/.test(t2)) throw new Error('no kilograms on day close')
 })
 
 console.log('\n=== PAYMENTS ===')

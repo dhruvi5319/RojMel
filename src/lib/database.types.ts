@@ -7,7 +7,9 @@
 export type UserRole = 'owner' | 'manager' | 'counter'
 export type ShiftStatus = 'open' | 'submitted' | 'approved'
 export type DayStatus = 'draft' | 'submitted' | 'approved'
-export type PaymentMode = 'cash' | 'upi' | 'card' | 'cheque' | 'bank_transfer'
+/** 'card' is the ATM swipe machine; 'bpcl_card' is BPCL's own prepaid card. */
+export type PaymentMode =
+  | 'cash' | 'upi' | 'card' | 'bpcl_card' | 'cheque' | 'bank_transfer'
 export type InvoiceStatus = 'draft' | 'issued' | 'partly_paid' | 'paid' | 'cancelled'
 export type StaffPaymentType = 'salary' | 'advance' | 'bonus' | 'deduction'
 
@@ -53,6 +55,8 @@ export interface FuelType {
   station_id: string
   name: string
   name_gu: string | null
+  /** 'L' for liquid fuels in tanks, 'kg' for CNG */
+  unit: 'L' | 'kg'
   color: string
   sort_order: number
   is_active: boolean
@@ -128,7 +132,10 @@ export interface ShiftCollection {
   staff_id: string | null
   cash_amount: number
   upi_amount: number
+  /** the ATM swipe machine */
   card_amount: number
+  /** BPCL's prepaid card — collected, settles to the bank, never cash */
+  bpcl_amount: number
   notes: string | null
   created_at: string
 }
@@ -193,9 +200,10 @@ export interface CreditSale {
   slip_number: string | null
   driver_name: string | null
   odometer: number | null
-  litres: number
+  /** in the fuel type's unit: litres for petrol/diesel, kg for CNG */
+  quantity: number
   sale_rate: number
-  /** generated: litres * sale_rate */
+  /** generated: quantity * sale_rate */
   amount: number
   invoice_id: string | null
   created_by: string | null
@@ -223,7 +231,21 @@ export interface FuelPurchase {
   fuel_type_id: string
   delivery_date: string
   tanker_number: string | null
+  /** indented from the company */
+  ordered_litres: number | null
+  /** what the challan says was loaded */
+  invoice_litres: number | null
+  /** the tanker's own dip, taken once at rest before decanting */
+  tanker_dip_litres: number | null
+  /** what actually reached the tank */
   litres: number
+  dip_before_litres: number | null
+  dip_after_litres: number | null
+  seal_number: string | null
+  seals_intact: boolean | null
+  water_check_ok: boolean | null
+  temperature_c: number | null
+  decanted_at: string | null
   density: number | null
   received_by: string | null
   notes: string | null
@@ -243,6 +265,10 @@ export interface FuelPurchaseCost {
   invoice_number: string | null
   invoice_date: string | null
   rate_per_litre: number
+  basic_amount: number | null
+  /** petrol and diesel sit outside GST and attract state VAT */
+  vat_rate: number | null
+  vat_amount: number | null
   amount: number
   created_at: string
 }
@@ -252,6 +278,8 @@ export interface TankDip {
   station_id: string
   tank_id: string
   business_date: string
+  /** the shift this dip closes; null for a day-end dip */
+  shift_id: string | null
   dip_litres: number
   recorded_by: string | null
   notes: string | null
@@ -352,12 +380,16 @@ export interface TankStock {
 export interface DaySummary {
   date: string
   litres_sold: number
+  kg_sold: number
+  liquid_sales: number
+  cng_sales: number
   meter_sales: number
   credit_sales: number
   counter_sales: number
   collected_cash: number
   collected_upi: number
   collected_card: number
+  collected_bpcl: number
   collected_total: number
   /** positive = the fillers handed over less than the meters say they owed */
   collection_short: number
@@ -421,6 +453,7 @@ export interface CashPosition {
 export interface SalesByDay {
   business_date: string
   litres_sold: number
+  kg_sold: number
   meter_sales: number
   credit_sales: number
   collected: number
@@ -432,7 +465,109 @@ export interface SalesByDay {
 export interface SalesByFuel {
   fuel_type_id: string
   fuel_name: string
-  litres_sold: number
+  unit: 'L' | 'kg'
+  quantity: number
   sales_value: number
   avg_rate: number | null
+}
+
+/* ─────────────────────────────────────────────────────────────────── CNG ──
+   Sold by the kilogram and piped in by Gujarat Gas, metered in SCM at the
+   inlet — so no tank, no tanker and no dip. Its sales still land in the same
+   day_summary as the liquid fuels.
+   ───────────────────────────────────────────────────────────────────────── */
+
+export interface CngDispenser {
+  id: string
+  station_id: string
+  fuel_type_id: string
+  name: string
+  sort_order: number
+  is_active: boolean
+}
+
+export interface CngReading {
+  id: string
+  station_id: string
+  shift_id: string
+  dispenser_id: string
+  staff_id: string | null
+  opening_reading: number
+  closing_reading: number
+  test_kg: number
+  sale_rate: number
+  /** generated: closing - opening - test */
+  kg: number
+  /** generated: kg * sale_rate */
+  amount: number
+  created_at: string
+}
+
+export interface CngSupply {
+  id: string
+  station_id: string
+  supply_date: string
+  opening_scm: number | null
+  closing_scm: number | null
+  scm_received: number
+  invoice_number: string | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
+}
+
+/** Owner-only by RLS, like fuel_purchase_costs. */
+export interface CngSupplyCost {
+  supply_id: string
+  station_id: string
+  supplier: string | null
+  rate_per_scm: number
+  basic_amount: number | null
+  vat_rate: number | null
+  vat_amount: number | null
+  amount: number
+  created_at: string
+}
+
+/** view: v_cng_state — what the CNG entry screen needs per dispenser */
+export interface CngState {
+  dispenser_id: string
+  station_id: string
+  name: string
+  sort_order: number
+  fuel_type_id: string
+  fuel_name: string
+  fuel_name_gu: string | null
+  sale_rate: number | null
+  last_closing: number
+  last_reading_date: string | null
+}
+
+/** view: v_deliveries — a tanker delivery with its paperwork and variances */
+export interface Delivery {
+  id: string
+  station_id: string
+  delivery_date: string
+  tank_id: string
+  tank_name: string
+  fuel_type_id: string
+  fuel_name: string
+  tanker_number: string | null
+  seal_number: string | null
+  seals_intact: boolean | null
+  water_check_ok: boolean | null
+  density: number | null
+  temperature_c: number | null
+  ordered_litres: number | null
+  invoice_litres: number | null
+  tanker_dip_litres: number | null
+  litres: number
+  dip_before_litres: number | null
+  dip_after_litres: number | null
+  decanted_at: string | null
+  notes: string | null
+  tank_gain_litres: number | null
+  /** negative means a short delivery against the challan */
+  invoice_variance: number | null
+  order_variance: number | null
 }

@@ -15,7 +15,7 @@ export async function counterSlip(input: {
   fuel_type_id: string
   nozzle_id: string | null
   staff_id: string | null
-  litres: number
+  quantity: number
   sale_rate: number
   slip_number: string | null
   driver_name: string | null
@@ -23,7 +23,7 @@ export async function counterSlip(input: {
 }): Promise<CounterResult> {
   const supabase = await createClient()
 
-  if (!(input.litres > 0)) return { error: 'Enter the litres.' }
+  if (!(input.quantity > 0)) return { error: 'Enter how much fuel went out.' }
   if (!(input.sale_rate > 0)) return { error: 'No rate set for this fuel.' }
 
   let vehicle_number: string | null = null
