@@ -37,6 +37,11 @@ Petrol and diesel by the litre, CNG by the kilogram. Four ways money arrives at
 the end of a shift — **cash**, **ATM** (the card machine), **UPI** and the
 **BPCL card** — each reconciled against what the meters say was sold.
 
+CNG has its own page under **Pump → CNG**: the dispensers, what Gujarat Gas
+piped in, and the kilograms actually achieved per SCM — the only stock control
+CNG has, since there is no tank to dip. Its opening and closing readings are
+entered with the shift, beside the nozzles, so the day still tallies as one day.
+
 Stock is dipped every shift. A tanker delivery keeps the ordered quantity, the
 challan quantity and what actually went into the tank apart, so a short delivery
 is visible rather than argued about, alongside the seal number, the tanker's own

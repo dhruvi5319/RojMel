@@ -24,7 +24,8 @@ udhaar, so `cash expected = meter sales − credit sales`. Never add the two.
 live in tanks with dips and arrive by tanker; CNG is piped in by Gujarat Gas,
 metered in SCM at the inlet, and sold by the kilogram — no tank, no dip, no
 decanting. Its sales still fold into `day_summary`, because the pump's day must
-tally as one day whatever the fuel was measured in.
+tally as one day whatever the fuel was measured in. CNG lives at `/cng` under
+the Pump tab; its readings are entered with the shift, beside the nozzles.
 
 **Four ways money arrives.** cash · ATM (the card machine) · UPI · BPCL card.
 The BPCL card is a prepaid card BPCL issues to a customer, so the fuel is paid

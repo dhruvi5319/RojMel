@@ -270,6 +270,33 @@ await check('stock: EDIT the delivery', async () => {
   await reflects('4,444.00 L')
 })
 
+await check('cng: reachable from the Pump tab', async () => {
+  await page.goto(`${BASE}/`)
+  await page.locator('a', { hasText: /^Pump$/ }).first().click()
+  await page.waitForLoadState('networkidle')
+  const link = page.locator('a', { hasText: /^CNG$/ }).first()
+  if ((await link.count()) === 0) throw new Error('no CNG in the Pump tab')
+  await link.click()
+  await page.waitForURL(/\/cng/, { timeout: 15000 })
+  const t2 = await body()
+  for (const w of ['KILOGRAMS SOLD', 'SCM RECEIVED', 'Dispensers', 'Gujarat Gas supply']) {
+    if (!t2.includes(w)) throw new Error(`CNG page missing "${w}"`)
+  }
+})
+
+// The manager runs the gas but never sees what it cost.
+await check('cng: manager records supply, without the cost', async () => {
+  await page.goto(`${BASE}/cng`)
+  await openPanel('Record supply')
+  const f = page.locator('form').filter({ has: page.locator('input[name=scm_received]') })
+  if ((await f.locator('input[name=rate_per_scm]').count()) !== 0) {
+    throw new Error('the manager was shown the gas rate')
+  }
+  await f.locator('input[name=scm_received]').fill('3210')
+  await submitIn(f, 3000)
+  await reflects('3210.000')
+})
+
 console.log('\n=== CUSTOMERS ===')
 await check('customers: create', async () => {
   await page.goto(`${BASE}/customers/new`)
@@ -450,6 +477,19 @@ await check('day: owner reopens', async () => {
   await submitIn(form, 3000)
   const t = await body()
   if (!t.includes('Approve day')) throw new Error('still showing as approved after reopen')
+})
+
+await check('cng: owner sees the gas cost', async () => {
+  await page.goto(`${BASE}/cng`)
+  await openPanel('Record supply')
+  const f = page.locator('form').filter({ has: page.locator('input[name=scm_received]') })
+  if ((await f.locator('input[name=rate_per_scm]').count()) === 0) {
+    throw new Error('the owner cannot enter the gas rate')
+  }
+  await f.locator('input[name=scm_received]').fill('3210')
+  await f.locator('input[name=rate_per_scm]').fill('48.5')
+  await submitIn(f, 3000)
+  await reflects('₹1,55,685.00')
 })
 
 await check('stock: owner records cost', async () => {

@@ -41,6 +41,7 @@ export const TABS: { key: TabKey; label: DictKey; items: NavItem[] }[] = [
     label: 'tab.pump',
     items: [
       { href: '/stock', key: 'nav.stock' },
+      { href: '/cng', key: 'nav.cng' },
       { href: '/expenses', key: 'nav.expenses' },
       { href: '/staff', key: 'nav.staff' },
       { href: '/bank', key: 'nav.bank' },
