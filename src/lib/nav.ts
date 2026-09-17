@@ -2,11 +2,15 @@ import type { DictKey } from '@/lib/i18n/dict'
 import type { UserRole } from '@/lib/database.types'
 
 /**
- * Four doors instead of thirteen. The design regroups every page under
- * Today / Udhaar / Pump / More so someone opening this for the first time
- * meets four choices, not a list of thirteen.
+ * A few coherent doors instead of thirteen pages.
+ *
+ * The mockups proposed four — Today, Udhaar, Pump, More — but "Pump" ended up
+ * holding two unrelated ideas: the fuel itself, and money going out. Nobody
+ * hunting for the bank deposit thinks to look under Pump, so the feature was
+ * hidden while sitting two clicks away. Splitting that door keeps the spirit
+ * of the idea (few, obvious choices) and fixes the junk drawer.
  */
-export type TabKey = 'today' | 'udhaar' | 'pump' | 'more'
+export type TabKey = 'today' | 'udhaar' | 'fuel' | 'cash' | 'more'
 
 export interface NavItem {
   href: string
@@ -37,11 +41,17 @@ export const TABS: { key: TabKey; label: DictKey; items: NavItem[] }[] = [
     ],
   },
   {
-    key: 'pump',
-    label: 'tab.pump',
+    key: 'fuel',
+    label: 'tab.fuel',
     items: [
       { href: '/stock', key: 'nav.stock' },
       { href: '/cng', key: 'nav.cng' },
+    ],
+  },
+  {
+    key: 'cash',
+    label: 'tab.cash',
+    items: [
       { href: '/expenses', key: 'nav.expenses' },
       { href: '/staff', key: 'nav.staff' },
       { href: '/bank', key: 'nav.bank' },

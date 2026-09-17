@@ -83,14 +83,28 @@ The look comes from the Claude Design project *Rojmel petrol pump mockups*
 terracotta accent, olive for anything settled or tallied, Caprasimo headings on
 Figtree body. Retune colour there, not in components.
 
-The shell groups all thirteen pages behind **four doors** — Today, Udhaar, Pump,
-More (`src/lib/nav.ts`) — so someone opening this meets four choices, not
-thirteen. One date stepper in the header governs every dated page; individual
-pages must not grow their own date picker.
+The shell groups all pages behind a few doors — **Today, Udhaar, Fuel, Cash,
+More** (`src/lib/nav.ts`). The mockups proposed four, but "Pump" had become a
+junk drawer holding both the fuel and the money going out, and nobody hunting
+for the bank deposit looks under Pump. Each door's contents must match its name;
+if one starts holding two ideas, split it rather than widening the label.
 
-Screens the mockups propose but the pump has not agreed to yet carry a
-`<Proposal />` tag: today's rhythm, needs-a-look, the audit trail and the
-permissions map.
+One date stepper in the header governs every dated page; individual pages must
+not grow their own date picker.
+
+The `PROPOSAL` badges from the design review are gone from the running app — it
+is in daily use and the word means nothing to a pump owner.
+
+## Words
+
+This is read by people who are not fluent in English, and Gujarati is a toggle
+rather than a translation of jargon. Prefer what the pump actually says:
+**bill** not invoice, **still owed** not outstanding, **money handed over** not
+handover, **to collect** not counter sales, **less than expected** not short
+collection, **account history** not ledger, **change history** not audit trail,
+**should be in tank** not book stock, **running costs** not operating expenses.
+Local words that are already the plainest available — udhaar, challan, dip —
+stay.
 
 ## Conventions
 

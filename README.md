@@ -11,9 +11,11 @@ call it.
 ## The look
 
 Warm paper ground, terracotta accent, Caprasimo headings — from the Claude
-Design project *Rojmel petrol pump mockups*. Every page lives behind one of four
-doors — **Today**, **Udhaar**, **Pump**, **More** — and a single date in the
-header governs the whole day.
+Design project *Rojmel petrol pump mockups*. Every page lives behind one of five
+doors — **Today**, **Udhaar**, **Fuel**, **Cash**, **More** — and a single date
+in the header governs the whole day. Wording favours what the pump says over
+what an accountant says: bills rather than invoices, still owed rather than
+outstanding, money handed over rather than handover.
 
 ## Who uses it
 

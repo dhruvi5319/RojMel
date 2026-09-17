@@ -1,7 +1,7 @@
 import { requireBackOffice } from '@/lib/auth'
 import { getT } from '@/lib/i18n/server'
 import {
-  Badge, Card, CardHeader, PageHeader, Proposal, TableWrap, Td, Th, rowClass,
+  Badge, Card, CardHeader, PageHeader, TableWrap, Td, Th, rowClass,
 } from '@/components/ui'
 
 /**
@@ -121,12 +121,7 @@ export default async function PermissionsPage() {
         write on most of the books. <b>Six things belong to the owner alone.</b>
       </p>
 
-      <div className="mb-6 flex items-center gap-2">
-        <Proposal />
-        <span className="text-[12.5px] text-neutral-600">
-          This screen is new — nobody could previously see the rules they work under.
-        </span>
-      </div>
+
 
       <div className="mb-6 grid gap-3 md:grid-cols-3">
         {ROLES.map((r) => (

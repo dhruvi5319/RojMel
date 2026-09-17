@@ -129,7 +129,7 @@ await check('settings: manager cannot edit pump details', async () => {
   if (!(await body()).includes('Owner only')) throw new Error('no owner-only notice')
 })
 
-await checkAsOwner('settings: add a fuel', async () => {
+await checkAsOwner('settings: add a fuel, then remove it', async () => {
   await page.goto(`${BASE}/settings`, { waitUntil: 'load' })
   await openPanel('Fuels & rates')
   const form = page.locator('form').filter({ has: page.locator('input[name=sort_order]') })
@@ -138,6 +138,12 @@ await checkAsOwner('settings: add a fuel', async () => {
   await form.locator('input[name=sale_rate]').fill('105.5')
   await submitIn(form)
   await reflects(`Power ${STAMP}`)
+
+  // tidy up, so repeated runs do not fill the pump with invented fuels
+  const row = page.locator('tr', { hasText: `Power ${STAMP}` }).first()
+  await row.locator('button[aria-label^="Delete"]').click()
+  await page.waitForTimeout(2500)
+  await gone(`Power ${STAMP}`)
 })
 
 await check('settings: change a rate', async () => {
@@ -158,6 +164,11 @@ await checkAsOwner('settings: add a tank', async () => {
   await form.locator('input[name=capacity_litres]').fill('12000')
   await submitIn(form)
   await reflects(`Tank ${STAMP}`)
+
+  const row = page.locator('tr', { hasText: `Tank ${STAMP}` }).first()
+  await row.locator('button[aria-label^="Delete"]').click()
+  await page.waitForTimeout(2500)
+  await gone(`Tank ${STAMP}`)
 })
 
 await checkAsOwner('settings: add a nozzle', async () => {
@@ -167,6 +178,11 @@ await checkAsOwner('settings: add a nozzle', async () => {
   await form.locator('input[name=name]').fill(`N${STAMP}`)
   await submitIn(form)
   await reflects(`N${STAMP}`)
+
+  const row = page.locator('tr', { hasText: `N${STAMP}` }).first()
+  await row.locator('button[aria-label^="Delete"]').click()
+  await page.waitForTimeout(2500)
+  await gone(`N${STAMP}`)
 })
 
 console.log('\n=== STAFF ===')
@@ -285,7 +301,7 @@ await check('stock: EDIT the delivery', async () => {
 
 await check('cng: reachable from the Pump tab', async () => {
   await page.goto(`${BASE}/`)
-  await page.locator('a', { hasText: /^Pump$/ }).first().click()
+  await page.locator('a', { hasText: /^Fuel$/ }).first().click()
   await page.waitForLoadState('networkidle')
   const link = page.locator('a', { hasText: /^CNG$/ }).first()
   if ((await link.count()) === 0) throw new Error('no CNG in the Pump tab')

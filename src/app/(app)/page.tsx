@@ -9,7 +9,7 @@ import { formatDateLong, litres, money, moneyWhole, todayIST } from '@/lib/forma
 import type {
   CustomerBalance, DaySummary, FuelRate, TankStock,
 } from '@/lib/database.types'
-import { Alert, Kicker, Proposal, Stat } from '@/components/ui'
+import { Alert, Kicker, Stat } from '@/components/ui'
 import { TodaysRates } from '@/components/TodaysRates'
 
 export const dynamic = 'force-dynamic'
@@ -176,11 +176,10 @@ export default async function TheDay({
         {/* ─────────────────────────────────────────────── today's rhythm ── */}
         <div className="flex flex-col gap-5">
           <div>
-            <div className="mb-3 flex items-center gap-2">
+            <div className="mb-3">
               <Kicker>
                 {t('dash.rhythm')} · {doneCount} of {steps.length}
               </Kicker>
-              <Proposal />
             </div>
 
             <div className="flex flex-col gap-2">
@@ -214,9 +213,8 @@ export default async function TheDay({
 
           {attention.length > 0 ? (
             <div>
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-3">
                 <Kicker>{t('dash.needsLook')}</Kicker>
-                <Proposal />
               </div>
               <div className="flex flex-col gap-2">
                 {shown.map((a, i) => (
