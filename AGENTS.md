@@ -27,7 +27,16 @@ decanting. Its sales still fold into `day_summary`, because the pump's day must
 tally as one day whatever the fuel was measured in. CNG lives at `/cng` under
 the Pump tab; its readings are entered with the shift, beside the nozzles.
 
-**Four ways money arrives.** cash · ATM (the card machine) · UPI · BPCL card.
+**The money log is the book.** `/moneylog` puts the two halves of the manager's
+page side by side, per shift: what the meters say left the pump, fuel by fuel,
+priced at that day's rate — against the five ways money arrives. The totals must
+meet, and the difference belongs to the **shift**, not the day, because that is
+the shift whose filler has to explain it. `v_shift_fuel_sales` and
+`v_shift_money` do the arithmetic; `record_shift_variance()` writes the agreed
+figure onto the shift with a note, recomputed in SQL so it cannot drift.
+
+**Four ways money arrives.** cash · ATM (the card machine) · UPI · BPCL card — and **udhaar** is the fifth
+way value leaves the pump, so `sold = cash + ATM + UPI + BPCL + udhaar`.
 The BPCL card is a prepaid card BPCL issues to a customer, so the fuel is paid
 for — it is a collection, never udhaar — but it settles to the bank and never
 reaches the cash box. Only `cash_amount` does.

@@ -586,3 +586,45 @@ export interface FuelRate {
   /** false means the pump is still selling at yesterday's price */
   set_today: boolean
 }
+
+/** view: v_shift_fuel_sales — what each fuel sold in one shift */
+export interface ShiftFuelSale {
+  shift_id: string
+  station_id: string
+  business_date: string
+  fuel_type_id: string
+  fuel_name: string
+  fuel_name_gu: string | null
+  unit: 'L' | 'kg'
+  sort_order: number
+  meters: number
+  quantity: number
+  test_quantity: number
+  amount: number
+  sale_rate: number
+  /** one fuel priced two ways in one shift — worth seeing */
+  rates_differ: boolean
+}
+
+/** view: v_shift_money — sold against accounted for, one row per shift */
+export interface ShiftMoney {
+  shift_id: string
+  station_id: string
+  business_date: string
+  name: string
+  sort_order: number
+  status: ShiftStatus
+  variance_amount: number | null
+  variance_note: string | null
+  total_sale: number
+  litres_sold: number
+  kg_sold: number
+  cash: number
+  card: number
+  upi: number
+  bpcl: number
+  udhaar: number
+  accounted: number
+  /** positive means the money is short of what the meters say left the pump */
+  difference: number
+}

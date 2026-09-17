@@ -23,5 +23,6 @@ psql -h localhost -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -q \
   -f "$ROOT/supabase/migrations/0013_fuel_rates_view.sql" \
   -f "$ROOT/supabase/migrations/0014_audit_everything.sql" \
   -f "$ROOT/supabase/migrations/0015_config_is_owners.sql" \
+  -f "$ROOT/supabase/migrations/0016_shift_money_log.sql" \
   -f "$ROOT/supabase/test/01_seed.sql" \
   -f "$ROOT/supabase/test/02_assert.sql"

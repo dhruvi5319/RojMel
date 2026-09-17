@@ -65,6 +65,13 @@ opens with it, which is where a phone keeps *Save as PDF* and *Share*. A
 customer's whole account history downloads as a CSV from their page, which is
 what an accountant asks for.
 
+**Money log** (Today → Money log) is the manager's book page. For every shift
+it shows what each fuel sold — closing minus opening, times that day's rate —
+beside the five ways the money arrived: cash, ATM, UPI, BPCL card and udhaar.
+The two totals must meet. Where they don't, the difference is recorded against
+that shift with a note, so the question "who was short, and why" has an answer
+a month later.
+
 ## How the money works
 
 The nozzle meter counts every litre that leaves the pump, whoever paid and

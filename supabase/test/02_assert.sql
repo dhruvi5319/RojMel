@@ -379,5 +379,61 @@ select assert_raises($$ delete from nozzles where name = 'P1' $$,
   'deleting a nozzle that has readings');
 rollback;
 
+
+-- ------------------------------ the money log: the book, one shift at a time --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+-- Petrol 198 L @ 96.50 = 19,107 · Diesel 500 L @ 89.20 = 44,600
+-- CNG    100 kg @ 79.67 = 7,967      → sold 71,674
+select assert_eq((select amount from v_shift_fuel_sales
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and fuel_name = 'Petrol'),
+                 19107.00::numeric, 'petrol sold this shift');
+select assert_eq((select quantity from v_shift_fuel_sales
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and fuel_name = 'CNG'),
+                 100.000::numeric, 'cng kilograms this shift');
+select assert_eq((select unit from v_shift_fuel_sales
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and fuel_name = 'CNG'), 'kg', 'and in kilograms');
+select assert_eq((select sale_rate from v_shift_fuel_sales
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and fuel_name = 'Diesel'),
+                 89.200::numeric, 'priced at the day''s rate');
+
+-- cash 30,000 + UPI 6,947 + BPCL 7,967 + udhaar 26,760 = 71,674
+select assert_eq((select total_sale from v_shift_money
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'),
+                 71674.00::numeric, 'sold, all three fuels');
+select assert_eq((select udhaar from v_shift_money
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'),
+                 26760.00::numeric, 'udhaar counts as a way money arrived');
+select assert_eq((select accounted from v_shift_money
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'),
+                 71674.00::numeric, 'accounted for, across five ways');
+select assert_eq((select difference from v_shift_money
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'),
+                 0.00::numeric, 'the shift balances');
+
+-- The difference belongs to the shift, and is written down.
+select assert_eq(record_shift_variance('11111111-0000-0000-0000-0000000000c1',
+                                       'Counted with Ramesh'),
+                 0.00::numeric, 'the difference is recorded');
+select assert_eq((select variance_note from shifts
+                   where id = '11111111-0000-0000-0000-0000000000c1'),
+                 'Counted with Ramesh', 'along with what was said about it');
+
+-- Take 500 out of the cash and the shift must show it short by exactly that.
+update shift_collections set cash_amount = cash_amount - 500
+ where shift_id = '11111111-0000-0000-0000-0000000000c1';
+select assert_eq((select difference from v_shift_money
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'),
+                 500.00::numeric, 'short cash shows as a shift difference');
+select assert_eq(record_shift_variance('11111111-0000-0000-0000-0000000000c1', 'Short'),
+                 500.00::numeric, 'and is recorded against that shift');
+rollback;
+
 \echo ''
 \echo '================  ALL ASSERTIONS PASSED  ================'

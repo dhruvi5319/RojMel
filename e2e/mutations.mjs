@@ -444,6 +444,35 @@ await check('day close: CNG and BPCL both show', async () => {
   if (!/kg/.test(t2)) throw new Error('no kilograms on day close')
 })
 
+await check('money log: sold against how the money came', async () => {
+  await page.goto(`${BASE}/moneylog`, { waitUntil: 'load' })
+  await page.waitForTimeout(700)
+  const t2 = await body()
+
+  for (const w of ['WHAT WAS SOLD', 'HOW THE MONEY CAME', 'Accounted for', 'Difference']) {
+    if (!t2.includes(w)) throw new Error(`money log missing "${w}"`)
+  }
+  // all five ways money arrives must be on the page
+  for (const w of ['Cash', 'ATM (card)', 'UPI', 'BPCL card', 'Udhaar']) {
+    if (!t2.includes(w)) throw new Error(`money log missing the ${w} line`)
+  }
+  // and the fuels, each priced
+  for (const w of ['Petrol', 'Diesel', 'CNG']) {
+    if (!t2.includes(w)) throw new Error(`money log missing ${w}`)
+  }
+
+  // the difference belongs to the shift, so it can be written down there
+  const f = page.locator('form').filter({ has: page.locator('input[name=note]') }).first()
+  if ((await f.count()) === 0) throw new Error('nowhere to record the difference')
+  await f.locator('input[name=note]').fill(`Counted together ${STAMP}`)
+  await f.locator('button[type=submit]').click()
+  await page.waitForTimeout(3000)
+  await reflects(`Counted together ${STAMP}`)
+  if (!(await body()).includes('Recorded as')) {
+    throw new Error('the difference was not recorded against the shift')
+  }
+})
+
 console.log('\n=== PAYMENTS ===')
 await check('payments: record one', async () => {
   await page.goto(`${BASE}/payments/new`)
