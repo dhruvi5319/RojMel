@@ -132,8 +132,9 @@ await check('settings: manager cannot edit pump details', async () => {
 await checkAsOwner('settings: add a fuel, then remove it', async () => {
   await page.goto(`${BASE}/settings`, { waitUntil: 'load' })
   await openPanel('Fuels & rates')
-  const form = page.locator('form').filter({ has: page.locator('input[name=sort_order]') })
+  const form = page.locator('form')
     .filter({ has: page.locator('input[name=name_gu]') })
+    .filter({ hasNot: page.locator('input[name=id]') })
   await form.locator('input[name=name]').fill(`Power ${STAMP}`)
   await form.locator('input[name=sale_rate]').fill('105.5')
   await submitIn(form)
@@ -159,7 +160,9 @@ await check('settings: change a rate', async () => {
 await checkAsOwner('settings: add a tank', async () => {
   await page.goto(`${BASE}/settings`)
   await openPanel('Tanks')
-  const form = page.locator('form').filter({ has: page.locator('input[name=capacity_litres]') })
+  const form = page.locator('form')
+    .filter({ has: page.locator('input[name=capacity_litres]') })
+    .filter({ hasNot: page.locator('input[name=id]') })
   await form.locator('input[name=name]').fill(`Tank ${STAMP}`)
   await form.locator('input[name=capacity_litres]').fill('12000')
   await submitIn(form)
@@ -174,7 +177,9 @@ await checkAsOwner('settings: add a tank', async () => {
 await checkAsOwner('settings: add a nozzle', async () => {
   await page.goto(`${BASE}/settings`)
   await openPanel('Nozzles')
-  const form = page.locator('form').filter({ has: page.locator('select[name=tank_id]') })
+  const form = page.locator('form')
+    .filter({ has: page.locator('select[name=tank_id]') })
+    .filter({ hasNot: page.locator('input[name=id]') })
   await form.locator('input[name=name]').fill(`N${STAMP}`)
   await submitIn(form)
   await reflects(`N${STAMP}`)
@@ -345,7 +350,9 @@ await check('customers: add a vehicle', async () => {
 })
 
 await check('customers: edit details', async () => {
-  const form = page.locator('form').filter({ has: page.locator('input[name=credit_limit]') })
+  const form = page.locator('form')
+    .filter({ has: page.locator('input[name=credit_limit]') })
+    .filter({ has: page.locator('input[name=id]') })
   await form.locator('input[name=name]').fill(`Transport ${STAMP} Pvt Ltd`)
   await form.locator('input[name=credit_limit]').fill('750000')
   await submitIn(form)
@@ -476,6 +483,41 @@ await check('invoices: generate', async () => {
   await page.locator('button[type=submit]').last().click()
   await page.waitForURL(/\/invoices\/[0-9a-f-]{36}/, { timeout: 15000 })
   await reflects('BILLED TO')
+})
+
+await check('bills: a printable page with nothing but the bill', async () => {
+  // the bill screen must offer a way off the screen
+  const t2 = await body()
+  if (!/Print \/ Save as PDF/.test(t2)) throw new Error('no print or save option on a bill')
+  if (!/Rupees Only/.test(t2)) throw new Error('no amount in words on the bill')
+
+  const url = page.url()
+  await page.goto(`${url}/print`, { waitUntil: 'load' })
+  await page.waitForTimeout(900)
+  const t3 = await body()
+  if (!t3.includes('BILLED TO')) throw new Error('the printable page has no bill on it')
+  // and nothing of the app around it
+  if ((await page.locator('header').count()) !== 0) {
+    throw new Error('the app header leaked onto the printable bill')
+  }
+  const tabs = await page.locator('a').filter({ hasText: /^(Today|Udhaar|Fuel|Cash|More)$/ }).count()
+  if (tabs !== 0) throw new Error('the tab bar leaked onto the printable bill')
+})
+
+await check('customers: the account history downloads as a file', async () => {
+  await page.goto(`${BASE}/customers`, { waitUntil: 'load' })
+  await page.locator('a[href^="/customers/"]').filter({ hasNotText: 'Add' }).first().click()
+  await page.waitForURL(/\/customers\/[0-9a-f-]{36}/, { timeout: 15000 })
+  const link = page.locator('a[href$="/statement"]').first()
+  if ((await link.count()) === 0) throw new Error('no download on the customer page')
+
+  const res = await page.request.get(`${BASE}${await link.getAttribute('href')}`)
+  if (res.status() !== 200) throw new Error(`download returned ${res.status()}`)
+  const disp = res.headers()['content-disposition'] ?? ''
+  if (!disp.includes('attachment')) throw new Error('not served as a download')
+  if (!disp.includes('.csv')) throw new Error('not a csv')
+  const text = await res.text()
+  if (!text.includes('Still owed')) throw new Error('the file has no running balance')
 })
 
 console.log('\n=== DAY CLOSE ===')
@@ -616,8 +658,10 @@ await check('counter: the slip reached the books', async () => {
 // Equipment is the owner's, and every change is recorded.
 await checkAsOwner('settings: owner edits and deletes a nozzle', async () => {
   await page.goto(`${BASE}/settings`)
-  await openPanel(`${'Add'} — Nozzles`).catch(() => {})
-  const f = page.locator('form').filter({ has: page.locator('select[name=tank_id]') }).first()
+  await openPanel('Add — Nozzles')
+  const f = page.locator('form')
+    .filter({ has: page.locator('select[name=tank_id]') })
+    .filter({ hasNot: page.locator('input[name=id]') })
   await f.locator('input[name=name]').fill(`N${STAMP}x`)
   await submitIn(f, 2500)
   await reflects(`N${STAMP}x`)

@@ -140,7 +140,23 @@ input, select, textarea, button { font-size: 16px; }
 ::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
 
 @media print {
+  /* A4 with a real margin, so a bill can go in an envelope. */
+  @page { size: A4; margin: 14mm; }
+
   .no-print { display: none !important; }
-  body { background: #fff; color: #000; }
-  .print-plain { border: none !important; box-shadow: none !important; background: #fff !important; }
+
+  /* Everything on paper is white, whatever the screen was. The warm ground is
+     lovely on a phone and a waste of a customer's toner. */
+  html, body { background: #fff !important; color: #000 !important; }
+  body * { background-color: transparent !important; }
+  .print-plain {
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Keep a bill's table from splitting a row across two sheets. */
+  tr, img { break-inside: avoid; }
+  thead { display: table-header-group; }
 }

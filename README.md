@@ -59,6 +59,12 @@ rate rather than asking for it.
 delete — who, when, which record, and for a change, what the value was before.
 Only an owner can read it, under More → Audit trail.
 
+**Getting a bill out of the app.** A bill opens on its own page at
+`/invoices/<id>/print` — no header, no tabs, A4, white — and the print sheet
+opens with it, which is where a phone keeps *Save as PDF* and *Share*. A
+customer's whole account history downloads as a CSV from their page, which is
+what an accountant asks for.
+
 ## How the money works
 
 The nozzle meter counts every litre that leaves the pump, whoever paid and

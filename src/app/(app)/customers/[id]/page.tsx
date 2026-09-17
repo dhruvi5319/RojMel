@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { Plus, Receipt } from 'lucide-react'
+import { Download, Plus, Receipt } from 'lucide-react'
 import { requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
@@ -133,6 +133,16 @@ export default async function CustomerPage({
             <LinkButton href={`/invoices/new?customer=${id}`} variant="secondary" size="sm">
               <Receipt className="size-4" aria-hidden />
               {t('inv.new')}
+            </LinkButton>
+            {/* A real file, for the accountant who asks for the ledger. */}
+            <LinkButton
+              href={`/customers/${id}/statement`}
+              variant="secondary"
+              size="sm"
+              prefetch={false}
+            >
+              <Download className="size-4" aria-hidden />
+              {t('common.export')}
             </LinkButton>
           </>
         }

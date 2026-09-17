@@ -95,6 +95,15 @@ not grow their own date picker.
 The `PROPOSAL` badges from the design review are gone from the running app — it
 is in daily use and the word means nothing to a pump owner.
 
+## Paper
+
+A bill is the only thing in here a customer ever sees. `BillDocument` is shared
+by the screen and by `/invoices/[id]/print`, so glass and paper can never
+disagree; the print route has no app shell and opens the print sheet itself.
+Anything printable needs `print-plain`, and `@media print` forces white — the
+warm ground is for phones, not for a customer's toner. A bill carries the amount
+in words and a line to sign, as an Indian bill is expected to.
+
 ## Words
 
 This is read by people who are not fluent in English, and Gujarati is a toggle
