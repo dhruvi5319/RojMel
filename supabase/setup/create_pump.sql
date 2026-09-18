@@ -1,4 +1,11 @@
 -- ============================================================================
+--  KEPT FOR REFERENCE. The app makes pumps now: sign in as a super admin and
+--  use "Add a pump and its owner" on /admin, then let the owner add the
+--  office accounts under More -> Who can sign in. See README.md.
+--
+--  This file is still useful for seeding a pump with fuels, tanks and nozzles
+--  in one go, or for setting one up before the service key is configured.
+--
 --  Run this ONCE, after the migrations, to create your pump and its people.
 --
 --  Before running it:

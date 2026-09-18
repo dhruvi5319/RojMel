@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import { formatDate, money, monthEnd, monthStart, todayIST } from '@/lib/format'
 import type {
-  CngState, CngSupply, CngSupplyCost, FuelType, SalesByFuel, Staff,
+  CngState, CngSupply, CngSupplyCost, FuelType, LastTax, SalesByFuel, Staff,
 } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th, rowClass,
@@ -41,7 +41,8 @@ export default async function CngPage({
   const from = monthStart(`${month}-01`)
   const to = monthEnd(`${month}-01`)
 
-  const [fuelsRes, dispensersRes, supplyRes, salesRes, staffRes] = await Promise.all([
+  const [fuelsRes, dispensersRes, supplyRes, salesRes, staffRes, lastTaxRes] =
+    await Promise.all([
     supabase.from('fuel_types').select('*').eq('unit', 'kg').order('sort_order'),
     supabase.from('v_cng_state').select('*').order('sort_order'),
     supabase
@@ -52,6 +53,7 @@ export default async function CngPage({
       .order('supply_date', { ascending: false }),
     supabase.rpc('sales_by_fuel', { p_from: from, p_to: to }),
     supabase.from('staff').select('*').eq('is_active', true).order('name'),
+    supabase.from('v_last_purchase_tax').select('*'),
   ])
 
   const fuels = (fuelsRes.data ?? []) as FuelType[]
@@ -59,6 +61,10 @@ export default async function CngPage({
   const supply = (supplyRes.data ?? []) as unknown as SupplyRow[]
   const byFuel = (salesRes.data ?? []) as SalesByFuel[]
   const staff = (staffRes.data ?? []) as Staff[]
+  // What was typed last time, as a hint. Rates move, so nothing is filled in.
+  const lastGas = ((lastTaxRes.data ?? []) as LastTax[]).find(
+    (x) => x.fuel_type_id === fuels[0]?.id,
+  )
 
   const cng = byFuel.find((f) => f.unit === 'kg')
   const kgSold = Number(cng?.quantity ?? 0)
@@ -121,7 +127,13 @@ export default async function CngPage({
 
       <div className="mt-5 flex flex-col gap-3">
         <Collapsible title={t('cng.recordSupply')}>
-          <SupplyForm today={today} canSeeCost={owner} staff={staff} />
+          <SupplyForm
+            today={today}
+            canSeeCost={owner}
+            staff={staff}
+            lastVat={lastGas?.vat_rate}
+            lastCess={lastGas?.cess_rate}
+          />
         </Collapsible>
         <Collapsible title={t('cng.addDispenser')}>
           <DispenserForm fuels={fuels} />

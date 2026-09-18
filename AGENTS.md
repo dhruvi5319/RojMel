@@ -57,6 +57,30 @@ status, not `open`. `approve_shift()` is the office's act and the line: past it
 only an owner or manager can reopen. Approving is a shift, not a day — the day
 lock in `day_closings` is separate and still applies on top.
 
+**Accounts are made for people, never by them.** There is no sign-up, and
+there must not be. The chain is: a **super admin** (`platform_admins`, outside
+every station, deliberately not a `user_role`) creates a pump and its first
+owner with `admin_create_pump()`; the **owner** adds and removes the office
+accounts with `add_office_account()` / `set_account_active()`; the owner or
+manager adds the **fillers**, who have no login at all and are `staff` rows.
+Removing somebody sets `is_active` false — their name is on shifts, slips and
+the audit trail — and `getSession()` refuses an inactive profile, so the login
+stops working immediately. Everyone with an account changes their own password
+on `/account`, which checks the current one first.
+
+**The service key stays on the server.** Creating a login is Supabase's admin
+API, so `SUPABASE_SERVICE_ROLE_KEY` is read only inside `src/lib/supabase/admin.ts`
+and never given a `NEXT_PUBLIC_` prefix. It bypasses every RLS policy, so every
+caller proves who is asking through the ordinary session client first, and the
+station boundary is re-checked in the action. The station and profile rows go in
+through SQL functions as the real user, so the audit trail names who did it —
+only `auth.users` is touched with the key.
+
+**An audited actor is a login, not one of a pump's people.** `audit_log.actor_id`
+references `auth.users`, not `profiles`: the super admin has no profile, and
+pointing it at `profiles` meant the one act they exist for failed on its own
+audit trigger. `v_audit` says "Super admin" where there is no profile to name.
+
 **Whose job is whose.** The fillers do the day as it happens — meters, slips,
 the cash they hand over, and starting and finishing their own shift. The
 manager checks it and hands it to the owner. The owner looks it over and
@@ -102,6 +126,42 @@ what each of our own tanks received is. So `fuel_deliveries` is the trip — dat
 tanker number, seal, who received it, typed once — and a `fuel_purchases` row
 hangs off it per tank. A tanker with nothing decanted off it is deleted with its
 last line.
+
+**The owner receives the tanker.** A delivery is the one entry that adds stock
+and it arrives with a depot invoice worth several lakh, so `fuel_deliveries` and
+`fuel_purchases` are owner-write and back-office-read (0029). The manager reads
+every delivery — she cannot check a day against stock she cannot see — but gets
+no form and no pencil. Dips are untouched: they are taken every shift, by
+whoever is there.
+
+**The depot's invoice reads in kilolitres, and has two taxes.** Modelled from a
+real BPCL tax invoice (0030), and the arithmetic is asserted against it to the
+paisa in `test:db`:
+
+- The rate is printed **per kilolitre** (`rate_per_kl`), not per litre.
+- **The basic amount is copied off the paper, never recomputed from the rate.**
+  5 KL at the printed 81,326.69/KL is 406,633.45; the invoice says 406,633.46,
+  because the depot bills a per-litre rate carried further than it prints.
+- There is a `delivery_charge` (DLY/TAXABLE CHARGE) per product, taxed with it.
+- **CESS is charged on the basic plus the delivery charge plus the VAT**, not on
+  the basic alone. Getting that wrong understates a 20 KL load by ~₹2,000.
+- VAT differs by product (13.7% petrol, 14.9% diesel), so it is per line.
+- The invoice covers the whole tanker, so its number, date and rounding line sit
+  on `fuel_deliveries`; only the amounts stay in the owner-only cost table.
+
+`purchase_invoice_line()` does the arithmetic and `record_purchase_invoice()` is
+the only way in. `src/lib/invoice.ts` mirrors it in TypeScript purely so the
+owner can check the total against the paper before saving — Postgres remains the
+authority, and the two must stay in step.
+
+**No tax rate is ever assumed.** Both `vat_rate` and `cess_rate` are columns on
+the line with no default: VAT differs by product on a single invoice and both
+rates move when the state moves them. CNG goes through the same function
+(`record_cng_invoice()`, 0031) so the gas and the liquid cannot drift apart.
+`v_last_purchase_tax` shows what was typed last time per fuel **as a hint beside
+an empty box, never as a default** — a rate that fills itself in is a rate
+nobody checks. `test:db` runs the function through five different rate pairs,
+including a load with no cess at all, to prove nothing is baked in.
 
 **Stock follows what reached the tank.** A delivery line keeps three quantities
 apart — `ordered_litres` indented, `invoice_litres` on the challan, and `litres`

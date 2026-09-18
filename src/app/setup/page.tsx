@@ -37,19 +37,22 @@ export default function SetupPage() {
               <code className="rounded bg-neutral-200 px-1.5 py-0.5">
                 supabase/migrations
               </code>{' '}
-              in order, 0001 through 0008.
+              in order.
             </li>
             <li>
               Copy <code className="rounded bg-neutral-200 px-1.5 py-0.5">.env.local.example</code>{' '}
               to <code className="rounded bg-neutral-200 px-1.5 py-0.5">.env.local</code> and
-              paste in the project URL and anon key from Settings → API.
+              paste in the project URL, the anon key, and the service_role key
+              from Settings → API. The service key is what lets the app create
+              logins; it stays on the server.
             </li>
             <li>
-              Run{' '}
+              Make yourself a login in Authentication → Users, then add it to{' '}
               <code className="rounded bg-neutral-200 px-1.5 py-0.5">
-                supabase/setup/create_pump.sql
+                platform_admins
               </code>{' '}
-              to create your pump and make the first owner account.
+              — that account creates the pumps, and the pump&apos;s owner does
+              the rest from inside the app.
             </li>
             <li>Restart the dev server.</li>
           </ol>

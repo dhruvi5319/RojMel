@@ -403,6 +403,72 @@ check('rpc reopen_day', await owner.rpc('reopen_day', { p_date: today, p_reason:
 /* ------------------------------------------------------------ as counter -- */
 const counter = await signIn('counter@test.in')
 
+/* ---------------------------------------------------------- the accounts -- */
+// Nobody signs themselves up. The super admin makes a pump and its first
+// owner; the owner keeps the office accounts; the fillers have no login.
+console.log('\n--- who may make an account ---')
+{
+  const nobodyId = '00000000-0000-0000-0000-0000000000ff'
+  const own = await signIn('father@test.in')
+
+  const mgrAdd = await mgr.rpc('add_office_account', {
+    p_user_id: nobodyId, p_full_name: 'Sneaky', p_role: 'manager',
+  })
+  assert(/Only an owner/.test(mgrAdd.error?.message ?? ''),
+    'a manager cannot add an account', mgrAdd.error?.message ?? 'it was allowed')
+
+  const counterAdd = await counter.rpc('add_office_account', {
+    p_user_id: nobodyId, p_full_name: 'Sneaky', p_role: 'owner',
+  })
+  assert(counterAdd.error != null, 'nor can the counter device',
+    'the counter device added an account')
+
+  // Making a pump is the super admin's, and nobody at a pump is one.
+  for (const [who, client] of [['an owner', own], ['a manager', mgr]]) {
+    const r = await client.rpc('admin_create_pump', {
+      p_owner_user_id: nobodyId, p_owner_name: 'X', p_name: 'Rival Pump',
+    })
+    assert(/Only a super admin/.test(r.error?.message ?? ''),
+      `  ${who} cannot create a pump`, r.error?.message ?? 'it was allowed')
+  }
+  const list = await mgr.rpc('admin_list_pumps')
+  assert(list.error != null, '  and cannot list the other pumps',
+    'the manager listed every pump')
+
+  // The owner keeps the list, and cannot lock the pump out of its own books.
+  const accounts = check('office_accounts', await mgr.rpc('office_accounts'))
+  assert((accounts ?? []).every((a) => a.email?.includes('@')),
+    '  the office sees who can sign in', 'no emails came back')
+  assert((accounts ?? []).some((a) => a.is_me),
+    '  and which one is them', 'nobody was marked as me')
+
+  const self = await own.rpc('set_account_active', {
+    p_user_id: (await own.auth.getUser()).data.user.id, p_active: false,
+  })
+  assert(/your own account/.test(self.error?.message ?? ''),
+    '  an owner cannot remove themselves', self.error?.message ?? 'it was allowed')
+
+  // Removing another owner is allowed; what must never happen is a pump with
+  // nobody who can close a day. The rule that guarantees it is the one above:
+  // whoever is doing the removing is an active owner and cannot remove
+  // themselves, so one always remains.
+  const other = (accounts ?? []).find((a) => a.role === 'owner' && !a.is_me)
+  if (other) {
+    const gone = await own.rpc('set_account_active', { p_user_id: other.user_id, p_active: false })
+    assert(!gone.error, '  but may remove another owner', gone.error?.message ?? '')
+
+    const left = check('who is left', await own.rpc('office_accounts'))
+    assert((left ?? []).some((a) => a.role === 'owner' && a.is_active),
+      '  and the pump is never left without one', 'no active owner remains')
+
+    await own.rpc('set_account_active', { p_user_id: other.user_id, p_active: true })
+  }
+
+  const counterSees = await counter.rpc('office_accounts')
+  assert(counterSees.error != null, '  the counter device sees no accounts',
+    'the counter device read the account list')
+}
+
 /* ------------------------------------------------- the shift's lifecycle -- */
 console.log('\n--- opening, closing and agreeing a shift ---')
 {
@@ -547,6 +613,23 @@ console.log('\n--- three fuels, four payment modes ---')
   expect('  short against the challan', supView?.invoice_variance, -10)
   await own.from('cng_supply_costs').upsert(
     { supply_id: sup.id, rate_per_kg: 48.5, amount: 193515 }, { onConflict: 'supply_id' })
+  // CNG is taxed the same way, through the same function: a cess as well as a
+  // VAT, both typed off its own invoice, and the value copied not recomputed.
+  const gasMoney = check('record_cng_invoice',
+    await own.rpc('record_cng_invoice', {
+      p_supply_id: sup.id, p_quantity_kg: 3990, p_rate_per_kg: 48.5,
+      p_basic: 193515, p_delivery_charge: 1200,
+      p_vat_rate: 15.5, p_cess_rate: 2.5, p_supplier: 'Gujarat Gas',
+    }))
+  expect('  its own VAT rate', gasMoney?.vat, 30180.83)
+  expect('  its own cess rate', gasMoney?.cess, 5622.40)
+
+  const gasTry = await mgr.rpc('record_cng_invoice', {
+    p_supply_id: sup.id, p_basic: 1, p_vat_rate: 1, p_cess_rate: 1,
+  })
+  assert(/Only an owner/.test(gasTry.error?.message ?? ''),
+    '  and a manager cannot write it', gasTry.error?.message ?? 'it was allowed')
+
   const { data: mgrGas } = await mgr.from('cng_supply_costs').select('*')
   assert(mgrGas?.length === 0, 'manager sees no gas cost', `saw ${mgrGas?.length}`)
   const { data: ownGas } = await own.from('cng_supply_costs').select('*')
@@ -582,6 +665,51 @@ console.log('\n--- stock every shift, and the tanker paperwork ---')
     density: 0.832, temperature_c: 31.5 }).select().single()
   assert(!delErr, 'record a delivery with its paperwork', delErr?.message ?? '')
 
+  // A delivery adds stock and arrives with the depot's invoice, so the owner
+  // records it. The manager reads every one.
+  {
+    const mgrTrip = await mgr.from('fuel_deliveries')
+      .insert({ delivery_date: today, tanker_number: 'MGR-TRY' }).select('id')
+    assert((mgrTrip.data ?? []).length === 0,
+      '  a manager cannot record a tanker', 'the manager recorded one')
+
+    const mgrLine = await mgr.from('fuel_purchases').insert({
+      delivery_id: visit.id, tank_id: tank.id, fuel_type_id: tank.fuel_type_id,
+      delivery_date: today, litres: 1,
+    }).select('id')
+    assert((mgrLine.data ?? []).length === 0,
+      '  nor add to one', 'the manager added a delivery line')
+
+    const seen = await mgr.from('v_deliveries').select('id').eq('delivery_id', visit.id)
+    assert((seen.data ?? []).length > 0,
+      '  but she reads them all', 'the manager cannot see the deliveries')
+  }
+
+  // The depot's invoice, as the paper reads. 5 KL of petrol and 15 KL of
+  // diesel off one tanker; CESS is charged on the VAT as well as the value.
+  {
+    const money = check('record_purchase_invoice',
+      await own.rpc('record_purchase_invoice', {
+        p_purchase_id: del.id,
+        p_quantity_kl: 15, p_rate_per_kl: 78507.72,
+        p_basic: 1177615.73, p_delivery_charge: 11968.80,
+        p_vat_rate: 14.9, p_cess_rate: 4, p_supplier: 'BPCL',
+      }))
+    expect('  VAT off the invoice', money?.vat, 177248.09)
+    expect('  CESS charged on the VAT too', money?.cess, 54673.30)
+    expect('  and the line comes to', money?.amount, 1421505.92)
+
+    const mgrTry = await mgr.rpc('record_purchase_invoice', {
+      p_purchase_id: del.id, p_basic: 1, p_vat_rate: 1, p_cess_rate: 1,
+    })
+    assert(/Only an owner/.test(mgrTry.error?.message ?? ''),
+      '  and a manager cannot write it', mgrTry.error?.message ?? 'it was allowed')
+
+    const stored = check('the cost as stored',
+      await own.from('fuel_purchase_costs').select('*').eq('purchase_id', del.id).single())
+    expect('  the rate is kept per litre as well', stored?.rate_per_litre, 78.508)
+  }
+
   // The second product off the same trip, into the other tank.
   const { data: other } = await own.from('tanks').select('id, fuel_type_id')
     .neq('id', tank.id).limit(1).maybeSingle()
@@ -600,13 +728,12 @@ console.log('\n--- stock every shift, and the tanker paperwork ---')
   expect('  short against the order', view.order_variance, -30)
   expect('  tanker dip at rest kept', view.tanker_dip_litres, 5980)
 
-  // VAT lives with the cost, where the manager cannot read it.
-  await own.from('fuel_purchase_costs').insert({
-    purchase_id: del.id, supplier: 'BPCL', rate_per_litre: 84,
-    basic_amount: 501480, vat_rate: 25, vat_amount: 125370, amount: 626850 })
+  // VAT lives with the cost, where the manager cannot read it. The row was
+  // written above through record_purchase_invoice — there is one way in.
   const { data: ownVat } = await own.from('fuel_purchase_costs')
-    .select('vat_amount').eq('purchase_id', del.id).single()
-  expect('  owner sees the VAT', ownVat.vat_amount, 125370)
+    .select('vat_amount, cess_amount').eq('purchase_id', del.id).single()
+  expect('  owner sees the VAT', ownVat.vat_amount, 177248.09)
+  expect('  and the CESS beside it', ownVat.cess_amount, 54673.30)
   const { data: mgrVat } = await mgr.from('fuel_purchase_costs')
     .select('*').eq('purchase_id', del.id)
   assert(mgrVat?.length === 0, '  manager sees no VAT or cost', `saw ${mgrVat?.length}`)

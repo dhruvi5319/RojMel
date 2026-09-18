@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useT } from '@/lib/i18n/client'
 import { Alert, Button, Card, Field, Input } from '@/components/ui'
@@ -14,6 +14,14 @@ export function LoginForm() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const removed = params.get('removed') === '1'
+
+  // Their account was removed, or never belonged to a pump. The session is
+  // still valid as far as Supabase is concerned, so it has to be ended here
+  // or every page they open will bounce them back.
+  useEffect(() => {
+    if (removed) void createClient().auth.signOut()
+  }, [removed])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -38,6 +46,7 @@ export function LoginForm() {
   return (
     <Card className="p-6">
       <form onSubmit={submit} className="flex flex-col gap-4">
+        {removed ? <Alert tone="accent">{t('auth.noAccess')}</Alert> : null}
         <Field label={t('auth.email')} required>
           <Input
             type="email"

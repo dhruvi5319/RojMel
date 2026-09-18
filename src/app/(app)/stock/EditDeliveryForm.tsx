@@ -2,6 +2,7 @@
 
 import { useT } from '@/lib/i18n/client'
 import type { Delivery, FuelPurchaseCost } from '@/lib/database.types'
+import { money } from '@/lib/format'
 import { Alert, Field, Input, NumberInput, Textarea } from '@/components/ui'
 import { ActionForm, SubmitButton } from '@/components/ActionForm'
 import { updateDelivery } from './actions'
@@ -81,20 +82,40 @@ export function EditDeliveryForm({
       {canSeeCost ? (
         <div className="rounded-lg border border-accent/30 bg-accent-100 p-4">
           <div className="mb-3 text-sm font-semibold text-accent">
-            {t('rep.ownerOnly')} — {t('stock.purchaseRate')}
+            {t('stock.fromInvoice')} — {t('stock.basicHint')}
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label={t('stock.supplier')}>
               <Input name="supplier" defaultValue={cost?.supplier ?? ''} />
             </Field>
-            <Field label={t('inv.number')}>
-              <Input name="invoice_number" defaultValue={cost?.invoice_number ?? ''} />
-            </Field>
-            <Field label={t('stock.purchaseRate')}>
+            <Field label={t('stock.quantityKl')}>
               <NumberInput
-                name="rate_per_litre"
+                name="quantity_kl"
                 step="0.001"
-                defaultValue={cost?.rate_per_litre ?? ''}
+                defaultValue={cost?.quantity_kl ?? ''}
+              />
+            </Field>
+            <Field label={t('stock.ratePerKl')}>
+              <NumberInput
+                name="rate_per_kl"
+                step="0.001"
+                defaultValue={cost?.rate_per_kl ?? ''}
+              />
+            </Field>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-4">
+            <Field label={t('stock.basic')}>
+              <NumberInput
+                name="basic"
+                step="0.01"
+                defaultValue={cost?.basic_amount ?? ''}
+              />
+            </Field>
+            <Field label={t('stock.deliveryCharge')}>
+              <NumberInput
+                name="delivery_charge"
+                step="0.01"
+                defaultValue={cost?.delivery_charge ?? ''}
               />
             </Field>
             <Field label={t('stock.vatRate')} hint={t('stock.vatHint')}>
@@ -104,7 +125,20 @@ export function EditDeliveryForm({
                 defaultValue={cost?.vat_rate ?? ''}
               />
             </Field>
+            <Field label={t('stock.cessRate')} hint={t('stock.cessHint')}>
+              <NumberInput
+                name="cess_rate"
+                step="0.001"
+                defaultValue={cost?.cess_rate ?? ''}
+              />
+            </Field>
           </div>
+          {cost?.amount ? (
+            <p className="mt-3 text-[13px] text-accent-800">
+              {t('stock.lineTotal')}{' '}
+              <strong className="tabular">{money(cost.amount)}</strong>
+            </p>
+          ) : null}
         </div>
       ) : (
         <Alert tone="accent">{t('stock.ownerOnlyCost')}</Alert>

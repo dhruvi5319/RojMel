@@ -41,25 +41,21 @@ export async function recordSupply(
     return { error: 'Nothing was changed. The delivery may have been removed.' }
   }
 
-  // What the gas cost is margin, so only an owner may write it.
-  const rate = Number(data.get('rate_per_kg') ?? 0)
-  if (session?.profile.role === 'owner' && rate > 0) {
-    const vatRate = Number(data.get('vat_rate') ?? 0)
-    const basic = Number((kg * rate).toFixed(2))
-    const vat = Number(((basic * vatRate) / 100).toFixed(2))
-
-    const { error: costError } = await supabase.from('cng_supply_costs').upsert(
-      {
-        supply_id: saved.id,
-        supplier: String(data.get('supplier') ?? '').trim() || null,
-        rate_per_kg: rate,
-        basic_amount: basic,
-        vat_rate: vatRate || null,
-        vat_amount: vat || null,
-        amount: Number((basic + vat).toFixed(2)),
-      },
-      { onConflict: 'supply_id' },
-    )
+  // What the gas cost is margin, so only an owner may write it — and the
+  // arithmetic is the database's, the same function the tanker's invoice uses.
+  // The basic amount is copied off the paper, not worked out from the rate.
+  const basic = Number(data.get('basic') ?? 0)
+  if (session?.profile.role === 'owner' && basic > 0) {
+    const { error: costError } = await supabase.rpc('record_cng_invoice', {
+      p_supply_id: saved.id,
+      p_quantity_kg: kg,
+      p_rate_per_kg: num('rate_per_kg'),
+      p_basic: basic,
+      p_delivery_charge: num('delivery_charge') ?? 0,
+      p_vat_rate: num('vat_rate'),
+      p_cess_rate: num('cess_rate'),
+      p_supplier: String(data.get('supplier') ?? '').trim() || null,
+    })
     if (costError) return { error: friendly(costError) }
   }
 

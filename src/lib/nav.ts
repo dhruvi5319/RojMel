@@ -71,8 +71,10 @@ export const TABS: { key: TabKey; label: DictKey; items: NavItem[] }[] = [
     items: [
       { href: '/reports', key: 'nav.reports', ownerOnly: true },
       { href: '/audit', key: 'nav.audit', ownerOnly: true },
+      { href: '/people', key: 'nav.people' },
       { href: '/permissions', key: 'nav.permissions' },
       { href: '/settings', key: 'nav.settings' },
+      { href: '/account', key: 'nav.account' },
     ],
   },
 ]

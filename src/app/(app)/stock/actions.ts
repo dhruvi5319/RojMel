@@ -6,34 +6,6 @@ import { getSession } from '@/lib/auth'
 import { changed, friendly, type FormState } from '@/lib/actions'
 
 /**
- * Petrol and diesel sit outside GST and attract state VAT, so a purchase
- * invoice reads as a basic amount plus the tax on it. VAT is taken as being
- * charged ON TOP of the per-litre rate, which is how a tax invoice normally
- * reads — the form shows the resulting total so it can be checked against the
- * paper before saving.
- */
-function invoiceMoney(
-  data: FormData,
-  litres: number,
-  rate: number,
-  vatRate = Number(data.get('vat_rate') ?? 0),
-) {
-  const basic = Number((litres * rate).toFixed(2))
-  const vat = Number(((basic * vatRate) / 100).toFixed(2))
-
-  return {
-    supplier: String(data.get('supplier') ?? '').trim() || null,
-    invoice_number: String(data.get('invoice_number') ?? '').trim() || null,
-    invoice_date: String(data.get('invoice_date') ?? '') || null,
-    rate_per_litre: rate,
-    basic_amount: basic,
-    vat_rate: vatRate || null,
-    vat_amount: vat || null,
-    amount: Number((basic + vat).toFixed(2)),
-  }
-}
-
-/**
  * A delivery is a tanker, not a tankful.
  *
  * The tanker comes from the depot with compartments — petrol in some, diesel
@@ -73,16 +45,29 @@ export async function recordDelivery(
     return { error: 'The same tank is on two lines. Put the whole quantity on one.' }
   }
 
+  const text = (k: string) => String(data.get(k) ?? '').trim() || null
+
   const { data: delivery, error } = await supabase
     .from('fuel_deliveries')
     .insert({
       delivery_date: String(data.get('delivery_date')),
-      tanker_number: String(data.get('tanker_number') ?? '').trim() || null,
-      seal_number: String(data.get('seal_number') ?? '').trim() || null,
+      tanker_number: text('tanker_number'),
+      seal_number: text('seal_number'),
       seals_intact: data.get('seals_intact') === 'on',
       water_check_ok: data.get('water_check_ok') === 'on',
       received_by: String(data.get('received_by') ?? '') || null,
-      notes: String(data.get('notes') ?? '').trim() || null,
+      notes: text('notes'),
+      // Off the depot's invoice. The number is not a secret — the amounts
+      // beside it are, and they stay in the owner-only cost table.
+      invoice_number: text('invoice_number'),
+      invoice_at: text('invoice_at'),
+      shipment_doc_no: text('shipment_doc_no'),
+      delivery_note_no: text('delivery_note_no'),
+      bay_no: text('bay_no'),
+      transporter_code: text('transporter_code'),
+      gate_in_at: text('gate_in_at'),
+      gate_out_at: text('gate_out_at'),
+      rounding_off: Number(data.get('rounding_off') ?? 0) || 0,
     })
     .select('id')
     .single()
@@ -94,6 +79,8 @@ export async function recordDelivery(
     const v = String(data.getAll(field)[i] ?? '').trim()
     return v === '' ? null : Number(v)
   }
+  const str = (field: string, i: number) =>
+    String(data.getAll(field)[i] ?? '').trim() || null
 
   const { data: saved, error: lineError } = await supabase
     .from('fuel_purchases')
@@ -111,7 +98,14 @@ export async function recordDelivery(
         dip_before_litres: at('line_dip_before_litres', i),
         dip_after_litres: at('line_dip_after_litres', i),
         density: at('line_density', i),
+        density_at_15c: at('line_density_at_15c', i),
         temperature_c: at('line_temperature_c', i),
+        // What the depot calls it, which is not what the pump calls it: the
+        // invoice says EBMS and HSD (BS VI), the pump says petrol and diesel.
+        product_code: str('line_product_code', i),
+        product_name: str('line_product_name', i),
+        batch_number: str('line_batch_number', i),
+        hsn_code: str('line_hsn_code', i),
         decanted_at: new Date().toISOString(),
       })),
     )
@@ -123,20 +117,26 @@ export async function recordDelivery(
     return { error: friendly(lineError) }
   }
 
-  // Only an owner may write the cost side; RLS would reject it anyway, so the
-  // manager's form simply never sends these fields. One challan, one supplier
-  // and invoice number — but a rate per product.
+  // Only an owner may write the cost side, and the arithmetic is the
+  // database's: the basic amount is copied off the paper rather than worked
+  // out from the printed rate, because the depot bills a per-litre rate
+  // carried further than it prints. See migration 0030.
   if (session?.profile.role === 'owner') {
-    const costs = (saved ?? [])
-      .map((row, i) => ({ row, rate: at('line_rate_per_litre', i) ?? 0, i }))
-      .filter((c) => c.rate > 0)
-      .map((c) => ({
-        purchase_id: c.row.id,
-        ...invoiceMoney(data, lines[c.i].litres, c.rate, at('line_vat_rate', c.i) ?? 0),
-      }))
+    for (const [i, row] of (saved ?? []).entries()) {
+      const basic = at('line_basic', i) ?? 0
+      if (basic <= 0) continue
 
-    if (costs.length > 0) {
-      const { error: costError } = await supabase.from('fuel_purchase_costs').insert(costs)
+      const { error: costError } = await supabase.rpc('record_purchase_invoice', {
+        p_purchase_id: row.id,
+        p_quantity_kl: at('line_quantity_kl', i),
+        p_rate_per_kl: at('line_rate_per_kl', i),
+        p_basic: basic,
+        p_delivery_charge: at('line_delivery_charge', i) ?? 0,
+        p_vat_rate: at('line_vat_rate', i),
+        p_cess_rate: at('line_cess_rate', i),
+        p_supplier: String(data.get('supplier') ?? '').trim() || null,
+        p_product_code: str('line_product_code', i),
+      })
       if (costError) return { error: friendly(costError) }
     }
   }
@@ -250,12 +250,20 @@ export async function updateDelivery(
   if (outcome.error) return outcome
 
   // The cost side is owner-only, so the manager's form never sends it.
-  const rate = Number(data.get('rate_per_litre') ?? 0)
-  if (session?.profile.role === 'owner' && rate > 0) {
-    const { error } = await supabase.from('fuel_purchase_costs').upsert(
-      { purchase_id: id, ...invoiceMoney(data, litres, rate) },
-      { onConflict: 'purchase_id' },
-    )
+  const basic = Number(data.get('basic') ?? 0)
+  if (session?.profile.role === 'owner' && basic > 0) {
+    const num = (k: string) => (data.get(k) ? Number(data.get(k)) : null)
+    const { error } = await supabase.rpc('record_purchase_invoice', {
+      p_purchase_id: id,
+      p_quantity_kl: num('quantity_kl'),
+      p_rate_per_kl: num('rate_per_kl'),
+      p_basic: basic,
+      p_delivery_charge: num('delivery_charge') ?? 0,
+      p_vat_rate: num('vat_rate'),
+      p_cess_rate: num('cess_rate'),
+      p_supplier: String(data.get('supplier') ?? '').trim() || null,
+      p_product_code: null,
+    })
     if (error) return { error: friendly(error) }
   }
 

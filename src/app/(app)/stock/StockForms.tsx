@@ -2,10 +2,13 @@
 
 import { useState } from 'react'
 import { useT } from '@/lib/i18n/client'
-import type { Shift, Staff, Tank } from '@/lib/database.types'
+import type { LastTax, Shift, Staff, Tank } from '@/lib/database.types'
 import { Alert, Field, Input, NumberInput, Select, Textarea } from '@/components/ui'
 import { ActionForm, SubmitButton } from '@/components/ActionForm'
+import { money as money$ } from '@/lib/format'
+import { invoiceLine, type InvoiceLine } from '@/lib/invoice'
 import { recordDelivery, recordDip } from './actions'
+
 
 /**
  * A delivery is a tanker, and a tanker fills more than one tank.
@@ -20,21 +23,55 @@ export function DeliveryForm({
   staff,
   today,
   canSeeCost,
+  lastTax,
 }: {
   tanks: Tank[]
   staff: Staff[]
   today: string
   canSeeCost: boolean
+  /** what was typed last time for this fuel — a hint, never a default */
+  lastTax?: LastTax[]
 }) {
   const t = useT()
   const [lines, setLines] = useState<number[]>([0])
   const [nextId, setNextId] = useState(1)
 
+  /*
+   * The invoice's own figures, kept in state for one reason: to show the owner
+   * what this adds up to before he saves it, so he can check it against the
+   * paper in his hand. The figures that are stored are worked out again in
+   * Postgres — this is a reading glass, not the calculation.
+   */
+  const [money, setMoney] = useState<Record<number, InvoiceLine>>({})
+  const [rounding, setRounding] = useState('')
+  const set = (id: number, patch: Partial<InvoiceLine>) =>
+    setMoney((m) => ({ ...m, [id]: { ...(m[id] ?? {}), ...patch } }))
+
   const add = () => {
     setLines((l) => [...l, nextId])
     setNextId((i) => i + 1)
   }
-  const drop = (id: number) => setLines((l) => (l.length === 1 ? l : l.filter((x) => x !== id)))
+  const drop = (id: number) => {
+    setLines((l) => (l.length === 1 ? l : l.filter((x) => x !== id)))
+    setMoney((m) => {
+      const rest = { ...m }
+      delete rest[id]
+      return rest
+    })
+  }
+
+  const total =
+    lines.reduce((sum, id) => sum + invoiceLine(money[id]).amount, 0) +
+    (rounding.trim() === '' ? 0 : Number(rounding))
+
+  // Rates move, and VAT differs by product on the same invoice, so nothing is
+  // filled in — but saying what it was last time saves hunting for an old
+  // challan. A rate that fills itself in is a rate nobody checks.
+  const [chosen, setChosen] = useState<Record<number, string>>({})
+  const lastFor = (id: number) => {
+    const tank = tanks.find((tk) => tk.id === chosen[id])
+    return lastTax?.find((x) => x.fuel_type_id === tank?.fuel_type_id)
+  }
 
   return (
     <ActionForm
@@ -95,6 +132,61 @@ export function DeliveryForm({
         </div>
       </div>
 
+      {/* ------------------------------------------- off the invoice -- */}
+      {canSeeCost ? (
+        <div className="rounded-lg border border-accent/30 bg-accent-100 p-4">
+          <div className="mb-1 text-sm font-semibold text-accent">
+            {t('stock.fromInvoice')}
+          </div>
+          <p className="mb-3 max-w-prose text-[12.5px] text-accent-800">
+            {t('stock.fromInvoiceHint')} {t('stock.ratesVary')}
+          </p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label={t('stock.supplier')}>
+              <Input name="supplier" defaultValue="BPCL" />
+            </Field>
+            <Field label={t('stock.invoiceNo')}>
+              <Input name="invoice_number" className="tabular" />
+            </Field>
+            <Field label={t('stock.invoiceAt')}>
+              <Input name="invoice_at" type="datetime-local" />
+            </Field>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-4">
+            <Field label={t('stock.shipmentDoc')}>
+              <Input name="shipment_doc_no" className="tabular" />
+            </Field>
+            <Field label={t('stock.deliveryNote')}>
+              <Input name="delivery_note_no" className="tabular" />
+            </Field>
+            <Field label={t('stock.bayNo')}>
+              <Input name="bay_no" className="tabular" />
+            </Field>
+            <Field label={t('stock.transporterCode')}>
+              <Input name="transporter_code" className="tabular" />
+            </Field>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <Field label={t('stock.gateIn')} hint={t('common.optional')}>
+              <Input name="gate_in_at" type="datetime-local" />
+            </Field>
+            <Field label={t('stock.gateOut')} hint={t('common.optional')}>
+              <Input name="gate_out_at" type="datetime-local" />
+            </Field>
+            <Field label={t('stock.roundingOff')} hint={t('common.optional')}>
+              <NumberInput
+                name="rounding_off"
+                step="0.01"
+                value={rounding}
+                onChange={(e) => setRounding(e.target.value)}
+              />
+            </Field>
+          </div>
+        </div>
+      ) : (
+        <Alert tone="accent">{t('stock.ownerOnlyCost')}</Alert>
+      )}
+
       {/* --------------------------------------------- one line per tank -- */}
       <div>
         <div className="mb-1 text-sm font-semibold">{t('stock.intoTanks')}</div>
@@ -121,7 +213,12 @@ export function DeliveryForm({
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label={t('stock.tank')} required>
-                  <Select name="line_tank_id" required>
+                  <Select
+                    name="line_tank_id"
+                    required
+                    value={chosen[id] ?? tanks[0]?.id ?? ''}
+                    onChange={(e) => setChosen((c) => ({ ...c, [id]: e.target.value }))}
+                  >
                     {tanks.map((tk) => (
                       <option key={tk.id} value={tk.id}>
                         {tk.name}
@@ -162,20 +259,102 @@ export function DeliveryForm({
                 </Field>
               </div>
 
+              {/* What the depot calls it, which is not what the pump does. */}
+              <div className="mt-4 grid gap-4 sm:grid-cols-4">
+                <Field label={t('stock.productName')} hint="EBMS · HSD (BS VI)">
+                  <Input name="line_product_name" />
+                </Field>
+                <Field label={t('stock.productCode')}>
+                  <Input name="line_product_code" className="tabular" />
+                </Field>
+                <Field label={t('stock.batch')}>
+                  <Input name="line_batch_number" className="tabular" />
+                </Field>
+                <Field label={t('stock.densityAt15')}>
+                  <NumberInput name="line_density_at_15c" step="0.1" />
+                </Field>
+              </div>
+
               {canSeeCost ? (
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <Field label={t('stock.purchaseRate')}>
-                    <NumberInput name="line_rate_per_litre" step="0.001" />
-                  </Field>
-                  <Field label={t('stock.vatRate')} hint={t('stock.vatHint')}>
-                    <NumberInput name="line_vat_rate" step="0.001" />
-                  </Field>
+                <div className="mt-4 rounded-lg bg-accent-100 p-4">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Field label={t('stock.quantityKl')}>
+                      <NumberInput
+                        name="line_quantity_kl"
+                        step="0.001"
+                        value={money[id]?.quantity_kl ?? ''}
+                        onChange={(e) => set(id, { quantity_kl: e.target.value })}
+                      />
+                    </Field>
+                    <Field label={t('stock.ratePerKl')}>
+                      <NumberInput name="line_rate_per_kl" step="0.001" />
+                    </Field>
+                    <Field label={t('stock.basic')} hint={t('stock.basicHint')}>
+                      <NumberInput
+                        name="line_basic"
+                        step="0.01"
+                        value={money[id]?.basic ?? ''}
+                        onChange={(e) => set(id, { basic: e.target.value })}
+                      />
+                    </Field>
+                  </div>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                    <Field label={t('stock.deliveryCharge')}>
+                      <NumberInput
+                        name="line_delivery_charge"
+                        step="0.01"
+                        value={money[id]?.delivery_charge ?? ''}
+                        onChange={(e) => set(id, { delivery_charge: e.target.value })}
+                      />
+                    </Field>
+                    <Field
+                      label={t('stock.vatRate')}
+                      hint={
+                        lastFor(id)?.vat_rate != null
+                          ? `${t('stock.lastTime')} ${lastFor(id)!.vat_rate}%`
+                          : t('stock.vatHint')
+                      }
+                    >
+                      <NumberInput
+                        name="line_vat_rate"
+                        step="0.001"
+                        value={money[id]?.vat_rate ?? ''}
+                        onChange={(e) => set(id, { vat_rate: e.target.value })}
+                      />
+                    </Field>
+                    <Field
+                      label={t('stock.cessRate')}
+                      hint={
+                        lastFor(id)?.cess_rate != null
+                          ? `${t('stock.lastTime')} ${lastFor(id)!.cess_rate}%`
+                          : t('stock.cessHint')
+                      }
+                    >
+                      <NumberInput
+                        name="line_cess_rate"
+                        step="0.001"
+                        value={money[id]?.cess_rate ?? ''}
+                        onChange={(e) => set(id, { cess_rate: e.target.value })}
+                      />
+                    </Field>
+                  </div>
+
+                  {invoiceLine(money[id]).amount > 0 ? (
+                    <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2 text-[13px]">
+                      <span className="text-accent-800">
+                        VAT {money$(invoiceLine(money[id]).vat)} · CESS{' '}
+                        {money$(invoiceLine(money[id]).cess)}
+                      </span>
+                      <span className="font-semibold">
+                        {t('stock.lineTotal')}{' '}
+                        <span className="tabular">
+                          {money$(invoiceLine(money[id]).amount)}
+                        </span>
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
-              ) : (
-                /* The line count has to match whatever the server reads, and
-                   the manager never sends a rate at all. */
-                null
-              )}
+              ) : null}
             </div>
           ))}
         </div>
@@ -189,26 +368,17 @@ export function DeliveryForm({
         </button>
       </div>
 
-      {canSeeCost ? (
-        <div className="rounded-lg border border-accent/30 bg-accent-100 p-4">
-          <div className="mb-3 text-sm font-semibold text-accent">
-            {t('rep.ownerOnly')} — {t('stock.purchaseRate')}
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Field label={t('stock.supplier')}>
-              <Input name="supplier" />
-            </Field>
-            <Field label={t('inv.number')}>
-              <Input name="invoice_number" />
-            </Field>
-            <Field label={t('common.date')}>
-              <Input name="invoice_date" type="date" />
-            </Field>
-          </div>
+      {canSeeCost && total > 0 ? (
+        <div className="flex flex-wrap items-baseline justify-between gap-3 rounded-[22px] bg-neutral-200 px-5 py-4">
+          <span className="text-[13px] text-neutral-600">
+            {t('stock.checkAgainstPaper')}
+          </span>
+          <span className="font-semibold">
+            {t('stock.invoiceTotal')}{' '}
+            <span className="tabular text-[18px]">{money$(total)}</span>
+          </span>
         </div>
-      ) : (
-        <Alert tone="accent">{t('stock.ownerOnlyCost')}</Alert>
-      )}
+      ) : null}
 
       <Field label={t('common.notes')}>
         <Textarea name="notes" rows={2} />

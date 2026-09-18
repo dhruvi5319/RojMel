@@ -4,10 +4,10 @@ import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import { formatDate, litres, money, todayIST } from '@/lib/format'
 import type {
-  Delivery, FuelPurchaseCost, Shift, Staff, Tank, TankStock,
+  Delivery, FuelPurchaseCost, LastTax, Shift, Staff, Tank, TankStock,
 } from '@/lib/database.types'
 import {
-  Alert, Badge, Card, CardHeader, Empty, PageHeader, TableWrap, Td, Th,
+  Alert, Badge, Card, CardHeader, Empty, PageHeader, TableWrap, Td, Th, rowClass,
 } from '@/components/ui'
 import { DeleteButton } from '@/components/DeleteButton'
 import { EditableRow } from '@/components/EditableRow'
@@ -30,7 +30,8 @@ export default async function StockPage() {
   const supabase = await createClient()
   const today = todayIST()
 
-  const [stockRes, tanksRes, staffRes, deliveriesRes, shiftsRes] = await Promise.all([
+  const [stockRes, tanksRes, staffRes, deliveriesRes, shiftsRes, lastTaxRes] =
+    await Promise.all([
     supabase.from('v_tank_stock').select('*').order('name'),
     supabase.from('tanks').select('*').eq('is_active', true).order('name'),
     supabase.from('staff').select('*').eq('is_active', true).order('name'),
@@ -46,6 +47,9 @@ export default async function StockPage() {
       .select('*')
       .eq('business_date', today)
       .order('sort_order'),
+    // Rates move, so the form says what was typed last time rather than
+    // filling anything in. Returns no rows for a manager, which is correct.
+    supabase.from('v_last_purchase_tax').select('*'),
   ])
 
   const stock = (stockRes.data ?? []) as TankStock[]
@@ -62,6 +66,7 @@ export default async function StockPage() {
     else visits.push([d])
   }
   const shifts = (shiftsRes.data ?? []) as Shift[]
+  const lastTax = (lastTaxRes.data ?? []) as LastTax[]
 
   return (
     <>
@@ -152,14 +157,22 @@ export default async function StockPage() {
 
       {tanks.length > 0 ? (
         <div className="mt-5 flex flex-col gap-3">
-          <Collapsible title={t('stock.newDelivery')}>
-            <DeliveryForm
-              tanks={tanks}
-              staff={staff}
-              today={today}
-              canSeeCost={owner}
-            />
-          </Collapsible>
+          {/* A delivery adds stock and comes with the depot's invoice, so the
+              owner records it. The manager reads every one of them — she
+              cannot check a day against stock she cannot see. */}
+          {owner ? (
+            <Collapsible title={t('stock.newDelivery')}>
+              <DeliveryForm
+                tanks={tanks}
+                staff={staff}
+                today={today}
+                canSeeCost={owner}
+                lastTax={lastTax}
+              />
+            </Collapsible>
+          ) : (
+            <Alert tone="accent">{t('stock.ownerOnlyDelivery')}</Alert>
+          )}
           <Collapsible title={t('stock.recordDip')}>
             <DipForm tanks={tanks} today={today} shifts={shifts} />
           </Collapsible>
@@ -171,7 +184,7 @@ export default async function StockPage() {
         <Card>
           <CardHeader
             title={t('stock.delivery')}
-            subtitle={owner ? undefined : t('stock.ownerOnlyCost')}
+            subtitle={owner ? t('stock.ownerReceives') : t('stock.ownerOnlyDelivery')}
           />
           {deliveries.length === 0 ? (
             <Empty>{t('common.none')}</Empty>
@@ -232,6 +245,23 @@ export default async function StockPage() {
 
                       {lines.map((d) => {
                         const cost = d.fuel_purchase_costs
+                        // The manager reads a delivery; she does not write one,
+                        // so she gets no pencil to type into and be refused.
+                        if (!owner) {
+                          return (
+                            <tr key={d.id} className={rowClass}>
+                              <Td className="font-medium">{d.tank_name}</Td>
+                              <Td className="text-neutral-600">{d.fuel_name}</Td>
+                              <Td className="tabular text-right text-neutral-600">
+                                {d.invoice_litres != null ? litres(d.invoice_litres) : '—'}
+                              </Td>
+                              <Td className="tabular text-right font-semibold">
+                                {litres(d.litres)}
+                              </Td>
+                              <Td />
+                            </tr>
+                          )
+                        }
                         return (
                           <EditableRow
                             key={d.id}
@@ -266,11 +296,13 @@ export default async function StockPage() {
                             ) : null}
                             </>}
                             actions={
-                              <DeleteButton
-                                action={deleteDelivery}
-                                fields={{ id: d.id }}
-                                label="Delete delivery"
-                              />
+                              owner ? (
+                                <DeleteButton
+                                  action={deleteDelivery}
+                                  fields={{ id: d.id }}
+                                  label="Delete delivery"
+                                />
+                              ) : null
                             }
                             form={
                               <EditDeliveryForm

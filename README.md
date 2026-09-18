@@ -61,7 +61,27 @@ it was written in — on the filler's own screen and in the office — because t
 money log reconciles each shift separately, and a slip belonging to no shift
 would make that shift look short by exactly its own amount.
 
-Stock is dipped every shift. A delivery is a **tanker**, not a tankful: one trip
+Stock is dipped every shift by whoever is there. **A delivery is the owner's to
+record**: it is the one entry that adds stock and it comes with a depot invoice
+worth several lakh rupees. The manager reads every delivery — she cannot check a
+day against stock she cannot see — but does not write one.
+
+The delivery form is laid out in the order a BPCL tax invoice reads, so the
+owner copies it straight across: quantity in **kilolitres**, the rate per KL,
+the total value **as printed** (5 KL at 81,326.69/KL comes to 406,633.45, while
+the invoice says 406,633.46 — the depot bills a rate carried further than it
+prints, so the amount is copied, not recalculated), the delivery charge, VAT at
+a rate that differs by product, and CESS — which is charged on the value, the
+delivery charge *and* the VAT. The form totals it as you type so it can be held
+against the paper before saving, and the arithmetic is checked against a real
+invoice, to the paisa, in the test suite.
+
+Neither tax rate is ever assumed — VAT differs by product on the same invoice
+and both rates move — so nothing is filled in for you. Each box does show what
+you typed last time for that fuel, as a hint. CNG is taxed through the very same
+function, so the gas and the diesel can never disagree about how a cess works.
+
+A delivery is a **tanker**, not a tankful: one trip
 from the depot carries petrol and diesel in different compartments, so the
 tanker number, seal and date are typed once and a line is added for each of our
 tanks it decanted into. Each line keeps the ordered quantity, the challan
@@ -145,30 +165,51 @@ In the Supabase SQL editor, run the files in `supabase/migrations` **in order**:
 | `0007_cash_position.sql` | Running cash position |
 | `0008_reports.sql` | Reporting aggregates |
 
-### 3. Create the logins
+### 3. Make the first super admin
 
-In Supabase, **Authentication → Users → Add user**, one per person — your
-father, your brother, the manager, and one for the shared counter device
-(e.g. `counter@yourpump.in`). Tick **Auto Confirm User**.
+The super admin creates pumps and nothing else. Create one login for yourself
+in **Authentication → Users → Add user** (tick **Auto Confirm User**), then in
+the SQL editor:
 
-### 4. Create the pump
+```sql
+insert into platform_admins (user_id, full_name)
+select id, 'Your name' from auth.users where email = 'you@example.com';
+```
 
-Open `supabase/setup/create_pump.sql`, change the values at the top to your
-pump's real details and those email addresses, then run the whole file in the
-SQL editor. It creates the station, links each person to their role, and sets
-up petrol/diesel with two tanks and four nozzles as a starting point — all
-editable afterwards under Settings.
+This account belongs to no pump. It cannot read a day's takings, a customer
+balance or a purchase rate — `admin_create_pump()` and `admin_list_pumps()`
+are the only two things the database lets it do.
 
-### 5. Point the app at the project
+### 4. Point the app at the project
 
 ```bash
-cp .env.local.example .env.local     # then paste in your URL and anon key
+cp .env.local.example .env.local     # then paste in your URL and keys
 npm install
 npm run dev
 ```
 
-The values come from Supabase → Settings → API. Until they are filled in the
-app shows a setup page rather than a network error.
+The URL and anon key come from Supabase → Settings → API. **Also set
+`SUPABASE_SERVICE_ROLE_KEY`** from the same page: creating a login goes
+through Supabase's admin API, which needs it. It is read only on the server and
+must never be given a `NEXT_PUBLIC_` prefix, because it bypasses every row
+level security policy. Until the URL and anon key are filled in the app shows a
+setup page rather than a network error.
+
+### 5. Create the pump, from the app
+
+Sign in as the super admin and you land on `/admin`. **Add a pump and its
+owner** — the pump's details, and the owner's name, email and a first password
+to tell them. That is the last time the super admin is needed:
+
+- the **owner** adds and removes the office accounts under
+  **More → Who can sign in** — a second owner, the manager, and the one login
+  for the shared counter device. Managers change; this is why it is his to do
+  and not an administrator's.
+- the **owner or manager** adds the **fillers** under **Expense → Staff**.
+  Fillers have no login at all: they pick their name on the counter device.
+- **everyone** changes their own password under **More → My login**.
+
+Nobody can sign themselves up, at any point.
 
 ### 6. First things to do in the app
 

@@ -65,7 +65,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  if (user && (pathname === '/login' || pathname === '/setup')) {
+  // A signed-in person is normally sent away from the login page — unless
+  // they were sent here *because* their account no longer works, in which case
+  // that page is the only one that can sign them out.
+  const removed = request.nextUrl.searchParams.has('removed')
+
+  if (user && !removed && (pathname === '/login' || pathname === '/setup')) {
     const url = request.nextUrl.clone()
     url.pathname = '/'
     url.search = ''

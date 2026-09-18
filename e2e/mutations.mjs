@@ -55,12 +55,18 @@ async function gone(needle) {
   if ((await body()).includes(needle)) throw new Error(`"${needle}" still present after delete`)
 }
 
-async function login(email) {
+async function login(email, password = 'pumpbook123', { expectIn = true } = {}) {
   await ctx.clearCookies()
   await page.goto(`${BASE}/login`)
   await page.fill('input[type=email]', email)
-  await page.fill('input[type=password]', 'pumpbook123')
+  await page.fill('input[type=password]', password)
   await page.click('button[type=submit]')
+  // A removed account signs in and is turned straight back, so not every
+  // login is expected to land inside the app.
+  if (!expectIn) {
+    await page.waitForTimeout(4000)
+    return
+  }
   await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 60000 })
 }
 
@@ -356,10 +362,103 @@ await checkAsOwner('today: the owner is shown the review, not the doing', async 
   if (!tags.includes('Yours')) throw new Error("the owner's own step is not marked")
 })
 
+// Nobody signs themselves up. The owner keeps the office accounts, and a
+// removed login must actually stop working — not merely lose its menu.
+await check('account: anyone can change their own password', async () => {
+  await page.goto(`${BASE}/account`, { waitUntil: 'load' })
+  const f = page.locator('form').filter({ has: page.locator('input[name=current_password]') })
+  if ((await f.count()) === 0) throw new Error('no way to change your own password')
+
+  const set = async (current, next) => {
+    await f.locator('input[name=current_password]').fill(current)
+    await f.locator('input[name=password]').fill(next)
+    await f.locator('input[name=password_again]').fill(next)
+    await f.locator('button[type=submit]').first().click()
+    await page.waitForTimeout(3000)
+    return body()
+  }
+
+  // Somebody walking up to an unattended screen must not be able to change it.
+  if (!/not your current password/.test(await set('wrongpass1', 'e2epassword1'))) {
+    throw new Error('the wrong current password was accepted')
+  }
+  if (!/Password changed/.test(await set('pumpbook123', 'e2epassword1'))) {
+    throw new Error('the password did not change')
+  }
+  // and put it back, or every later run of this suite cannot sign in
+  await login('manager@test.in', 'e2epassword1')
+  await page.goto(`${BASE}/account`, { waitUntil: 'load' })
+  const g = page.locator('form').filter({ has: page.locator('input[name=current_password]') })
+  await g.locator('input[name=current_password]').fill('e2epassword1')
+  await g.locator('input[name=password]').fill('pumpbook123')
+  await g.locator('input[name=password_again]').fill('pumpbook123')
+  await g.locator('button[type=submit]').first().click()
+  await page.waitForTimeout(3000)
+  if (!/Password changed/.test(await body())) throw new Error('the password was not put back')
+  await login('manager@test.in')
+})
+
+await check('accounts: a manager may look but not touch', async () => {
+  await page.goto(`${BASE}/people`, { waitUntil: 'load' })
+  const t = await body()
+  if (!t.includes('Who can sign in')) throw new Error('the manager cannot see who can sign in')
+  if (t.includes('Add an account')) throw new Error('a manager was offered the add form')
+})
+
+await checkAsOwner('accounts: the owner adds one, and removing it locks it out', async () => {
+  await page.goto(`${BASE}/people`, { waitUntil: 'load' })
+  if (!(await body()).includes('Add an account')) {
+    throw new Error('the owner cannot add an account')
+  }
+
+  // A fixed email, so repeated runs do not fill the project with logins.
+  const email = 'e2e-temp@test.in'
+  const name = 'E2E Temp'
+  if (!(await body()).includes(name)) {
+    await openPanel('Add an account')
+    const f = page.locator('form').filter({ has: page.locator('input[name=email]') })
+    await f.locator('input[name=full_name]').fill(name)
+    await f.locator('input[name=email]').fill(email)
+    await f.locator('select[name=role]').selectOption('manager')
+    await f.locator('input[name=password]').fill('pumpbook123')
+    await submitIn(f, 4000)
+    await reflects(name)
+  }
+
+  // Make sure it is active, then take it away. "Removed" has to be read off
+  // this row: another account may be removed too.
+  const row = () => page.locator('tr', { hasText: name }).first()
+  if ((await row().innerText()).includes('Removed')) {
+    await row().locator('button[type=submit]').first().click()
+    await page.waitForTimeout(3000)
+  }
+  await row().locator('button[type=submit]').first().click()
+  await page.waitForTimeout(3000)
+  if (!(await row().innerText()).includes('Removed')) {
+    throw new Error(`the account was not removed: ${await row().innerText()}`)
+  }
+
+  // Removed means it cannot get in — not merely that its menu is smaller.
+  await login(email, 'pumpbook123', { expectIn: false })
+  const url = new URL(page.url())
+  if (!url.pathname.startsWith('/login')) {
+    throw new Error(`a removed account reached ${url.pathname}`)
+  }
+  if (!/no longer has access to a pump/.test(await body())) {
+    throw new Error(`a removed account is not told why: ${await body()}`)
+  }
+  // and it stays out: the session it holds is no longer worth anything
+  await page.goto(`${BASE}/moneylog`, { waitUntil: 'load' })
+  await page.waitForTimeout(1500)
+  if (!new URL(page.url()).pathname.startsWith('/login')) {
+    throw new Error('a removed account reached the money log')
+  }
+})
+
 console.log('\n=== STOCK ===')
 // One trip from the depot, decanted into two of our tanks. The tanker is
 // entered once; the compartments are never written down.
-await check('stock: record a delivery, one tanker into two tanks', async () => {
+await checkAsOwner('stock: record a delivery, one tanker into two tanks', async () => {
   await page.goto(`${BASE}/stock`)
   await openPanel('Record delivery')
   const form = page.locator('form').filter({ has: page.locator('input[name=tanker_number]') })
@@ -398,7 +497,7 @@ await check('stock: record a dip', async () => {
   await reflects('4,567.00 L')
 })
 
-await check('stock: EDIT one tank off the delivery', async () => {
+await checkAsOwner('stock: EDIT one tank off the delivery', async () => {
   await page.goto(`${BASE}/stock`)
   await openRowEditor('3,210.00 L')
   const f = page.locator('td[colspan] form')
@@ -806,15 +905,49 @@ await check('cng: owner sees the gas cost', async () => {
   await reflects('₹1,55,685.00')
 })
 
-await check('stock: owner records cost', async () => {
+// The real BPCL invoice this was modelled from: 5 KL of petrol, VAT 13.7%
+// and a CESS of 4% charged on the value, the delivery charge AND the VAT. The
+// basic amount is copied off the paper, because 5 x 81,326.69 is 406,633.45
+// and the invoice says 406,633.46.
+await check('stock: the owner copies the depot invoice across', async () => {
   await page.goto(`${BASE}/stock`)
   await openPanel('Record delivery')
-  const form = page.locator('form').filter({ has: page.locator('input[name=line_rate_per_litre]') })
-  await form.locator('input[name=line_litres]').first().fill('5000')
+  const form = page.locator('form').filter({ has: page.locator('input[name=line_basic]') })
   await form.locator('input[name=tanker_number]').fill(`TT${STAMP}`)
-  await form.locator('input[name=line_rate_per_litre]').first().fill('84.5')
+  await form.locator('input[name=invoice_number]').fill(`INV${STAMP}`)
+  await form.locator('input[name=line_litres]').first().fill('5000')
+  await form.locator('input[name=line_quantity_kl]').first().fill('5')
+  await form.locator('input[name=line_rate_per_kl]').first().fill('81326.69')
+  await form.locator('input[name=line_basic]').first().fill('406633.46')
+  await form.locator('input[name=line_delivery_charge]').first().fill('3999.10')
+  await form.locator('input[name=line_vat_rate]').first().fill('13.7')
+  await form.locator('input[name=line_cess_rate]').first().fill('4')
+  await page.waitForTimeout(500)
+
+  // The form must show what the paper says before it is saved, or there is
+  // nothing to check it against.
+  const shown = await form.innerText()
+  for (const figure of ['₹56,256.66', '₹18,675.57', '₹4,85,564.79']) {
+    if (!shown.includes(figure)) {
+      throw new Error(`the form does not work out ${figure} from the invoice`)
+    }
+  }
+
   await submitIn(form)
-  await reflects('₹4,22,500.00')
+  await reflects('₹4,85,564.79')
+})
+
+await check('stock: a manager may read a delivery but not record one', async () => {
+  await login('manager@test.in')
+  await page.goto(`${BASE}/stock`, { waitUntil: 'load' })
+  const t = await body()
+  if (!t.includes(`TT${STAMP}`)) throw new Error('the manager cannot see the delivery')
+  if (/Record delivery/.test(t)) throw new Error('a manager was offered the delivery form')
+  if (!/only an owner records one/i.test(t)) {
+    throw new Error('the manager is not told why she cannot record one')
+  }
+  if (/4,85,564/.test(t)) throw new Error('the manager was shown what the fuel cost')
+  await login('father@test.in')
 })
 
 await check('settings: owner renames the pump (header updates too)', async () => {
@@ -825,25 +958,34 @@ await check('settings: owner renames the pump (header updates too)', async () =>
   await reflects(`Rathod Petroleum ${STAMP}`)
 })
 
-await check('stock: the purchase rate is actually shown', async () => {
+await checkAsOwner('stock: the purchase cost is actually shown', async () => {
   await page.goto(`${BASE}/stock`)
-  // The tanker heads its group; the rate belongs to the tank line under it.
+  // The tanker heads its group; the cost belongs to the tank line under it.
+  // The rate is typed per KL and kept per litre, so 81,326.69/KL reads 81.327.
   const lines = (await body()).split('\n')
   const at = lines.findIndex((l) => l.includes(`TT${STAMP}`))
   if (at < 0) throw new Error(`the tanker TT${STAMP} is not listed`)
   const under = lines.slice(at + 1, at + 6).join(' | ')
-  if (!/84\.5/.test(under)) throw new Error(`purchase rate missing under the tanker: "${under}"`)
+  if (!/81\.327/.test(under)) throw new Error(`the rate is missing: "${under}"`)
+  if (!/4,85,564\.79/.test(under)) {
+    throw new Error(`what the invoice came to is missing: "${under}"`)
+  }
 })
 
 // A blocked write must say so. Approve the day, then have the manager try to
 // delete something on it — silence here is the bug this suite exists for.
 await check('an approved day refuses edits out loud', async () => {
+  // Only an owner closes a day, so say so rather than depending on whoever
+  // the last test happened to leave signed in.
+  await login('father@test.in')
   await page.goto(`${BASE}/day`)
-  if ((await body()).includes('Approve day')) {
-    const f = page.locator('form').filter({ has: page.locator('textarea[name=remarks]') })
-    await f.locator('button[type=submit]').first().click()
-    await page.waitForTimeout(3000)
+  if (!(await body()).includes('Approve day')) {
+    throw new Error('the owner was not offered the approval, so nothing got locked')
   }
+  const approve = page.locator('form').filter({ has: page.locator('textarea[name=remarks]') })
+  await approve.locator('button[type=submit]').first().click()
+  await page.waitForTimeout(3000)
+
   await login('manager@test.in')
   await page.goto(`${BASE}/expenses`)
   await openPanel('Add expense')

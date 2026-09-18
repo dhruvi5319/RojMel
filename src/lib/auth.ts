@@ -39,8 +39,43 @@ export async function getSession(): Promise<Session | null> {
 
 export async function requireSession(): Promise<Session> {
   const session = await getSession()
-  if (!session) redirect('/login')
-  return session
+  if (session) return session
+
+  // A super admin belongs to no pump, so they have no profile and no session
+  // in this sense. Sending them to /login would bounce them straight back
+  // here, so they go where their work is.
+  if (await isPlatformAdmin()) redirect('/admin')
+
+  // Signed in, but with no active profile at any pump — a removed manager, or
+  // a login made before its pump existed. Without the reason on the query
+  // string the proxy would send them straight back here and the two would
+  // bounce off each other forever.
+  redirect('/login?removed=1')
+}
+
+/**
+ * The super admin: the account that creates a pump and its first owner.
+ *
+ * They are deliberately not a user_role — a role sits on a profile and a
+ * profile sits in a station, and this account sits outside every station. The
+ * database answers the question through is_platform_admin(), because the table
+ * itself is readable by nobody.
+ */
+export async function isPlatformAdmin(): Promise<boolean> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
+  const { data } = await supabase.rpc('is_platform_admin')
+  return data === true
+}
+
+export async function requirePlatformAdmin(): Promise<{ id: string; email: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  const { data } = await supabase.rpc('is_platform_admin')
+  if (data !== true) redirect('/')
+  return { id: user.id, email: user.email ?? '' }
 }
 
 /** Back office = owner or manager. The counter device is sent to its own screen. */

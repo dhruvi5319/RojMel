@@ -262,8 +262,16 @@ export interface FuelPurchaseCost {
   invoice_date: string | null
   rate_per_litre: number
   basic_amount: number | null
-  /** petrol and diesel sit outside GST and attract state VAT */
+  quantity_kl: number | null
+  /** as the invoice prints it, per kilolitre */
+  rate_per_kl: number | null
+  /** DLY/TAXABLE CHARGE — taxed along with the fuel */
+  delivery_charge: number
   vat_rate: number | null
+  /** charged on the value, the delivery charge and the VAT */
+  cess_rate: number | null
+  cess_amount: number | null
+  /** petrol and diesel sit outside GST and attract state VAT */
   vat_amount: number | null
   amount: number
   created_at: string
@@ -515,6 +523,12 @@ export interface CngSupply {
 
 /** Owner-only by RLS, like fuel_purchase_costs. */
 export interface CngSupplyCost {
+  quantity_kg: number | null
+  /** DLY/taxable charge — taxed along with the gas */
+  delivery_charge: number
+  /** typed off the invoice; charged on the value, the charge and the VAT */
+  cess_rate: number | null
+  cess_amount: number | null
   supply_id: string
   station_id: string
   supplier: string | null
@@ -590,6 +604,17 @@ export interface TankerVisit {
   invoice_litres: number
   /** 'Petrol + Diesel' when one trip brought both */
   fuels: string | null
+}
+
+/** view: v_last_purchase_tax — what was typed last time, per fuel, as a hint */
+export interface LastTax {
+  fuel_type_id: string
+  station_id: string
+  on_date: string
+  vat_rate: number | null
+  cess_rate: number | null
+  rate_per_kl: number | null
+  rate_per_kg: number | null
 }
 
 /** view: v_fuel_rates — the rate in force per fuel, and whether it is today's */

@@ -79,6 +79,50 @@ select assert_eq((select count(*) from credit_sales
                    where business_date = current_date and shift_id is null),
                  0::bigint, 'no slip is left off a shift');
 
+-- ------------------------------------------------- the depot's invoice ------
+-- Taken off a real BPCL tax invoice: one tanker, 5 KL of petrol and 15 KL of
+-- diesel, 29 Aug 2026. If these figures ever stop matching, the app is telling
+-- an owner he owes a different amount from the paper in his hand.
+--
+-- The catch the arithmetic has to get right: CESS is charged on the value plus
+-- the delivery charge PLUS the VAT. Charging it on the value alone understates
+-- this one load by about two thousand rupees.
+select assert_eq((purchase_invoice_line(406633.46, 3999.10, 13.7, 4) ->> 'vat')::numeric,
+                 56256.66::numeric, 'petrol VAT at 13.7% matches the invoice');
+select assert_eq((purchase_invoice_line(406633.46, 3999.10, 13.7, 4) ->> 'cess')::numeric,
+                 18675.57::numeric, 'petrol CESS is charged on the VAT too');
+select assert_eq((purchase_invoice_line(1177615.73, 11968.80, 14.9, 4) ->> 'vat')::numeric,
+                 177248.09::numeric, 'diesel VAT at 14.9% matches the invoice');
+select assert_eq((purchase_invoice_line(1177615.73, 11968.80, 14.9, 4) ->> 'cess')::numeric,
+                 54673.30::numeric, 'diesel CESS matches the invoice');
+
+-- and the whole paper tallies, rounding line included
+select assert_eq(
+  (purchase_invoice_line(406633.46, 3999.10, 13.7, 4) ->> 'amount')::numeric
+  + (purchase_invoice_line(1177615.73, 11968.80, 14.9, 4) ->> 'amount')::numeric
+  + 0.29,
+  1907071.00::numeric, 'the tanker''s invoice comes to what the paper says');
+
+-- The basic amount is copied, never recomputed: 5 KL at the printed
+-- 81,326.69/KL is 406,633.45, and the invoice says 406,633.46, because the
+-- depot bills a per-litre rate carried further than it prints.
+select assert_eq(round(5 * 81326.69, 2), 406633.45::numeric,
+                 'the printed rate does not reproduce the printed amount');
+
+-- Neither rate is ever assumed. VAT differs by product on one invoice and both
+-- rates move, so a delivery's figures must come out of its own row and nothing
+-- else. Same function, four different pairs of rates.
+select assert_eq((purchase_invoice_line(100000, 0, 13.7, 4) ->> 'amount')::numeric,
+                 118248.00::numeric, 'a 13.7% VAT line');
+select assert_eq((purchase_invoice_line(100000, 0, 14.9, 4) ->> 'amount')::numeric,
+                 119496.00::numeric, 'a 14.9% VAT line is different');
+select assert_eq((purchase_invoice_line(100000, 0, 14.9, 0) ->> 'amount')::numeric,
+                 114900.00::numeric, 'and a load with no cess at all');
+select assert_eq((purchase_invoice_line(100000, 0, 0, 0) ->> 'amount')::numeric,
+                 100000.00::numeric, 'and one with neither');
+select assert_eq((purchase_invoice_line(100000, 0, 15.5, 2.5) ->> 'amount')::numeric,
+                 118387.50::numeric, 'a rate the state has not used yet still works');
+
 -- ---------------------------------------------------- one tanker, two tanks --
 -- A tanker comes from the depot with compartments and decants into more than
 -- one of our tanks. The compartments are not written down; the tanks are, and
