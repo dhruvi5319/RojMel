@@ -1,32 +1,17 @@
 #!/usr/bin/env bash
 # Rebuild the test database from scratch and run the schema + assertions.
+#
+# The migrations are globbed, not listed. A hand-written list silently tested
+# yesterday's schema every time somebody added a file and forgot this one.
 set -euo pipefail
 export PATH="/Applications/Postgres.app/Contents/Versions/latest/bin:$PATH"
 DB=pump_test
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 psql -h localhost -U "$USER" -d postgres -qtAc "drop database if exists $DB;" >/dev/null
 psql -h localhost -U "$USER" -d postgres -qtAc "create database $DB;" >/dev/null
-psql -h localhost -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -q \
-  -f "$ROOT/supabase/test/00_auth_stub.sql" \
-  -f "$ROOT/supabase/migrations/0001_schema.sql" \
-  -f "$ROOT/supabase/migrations/0002_rls.sql" \
-  -f "$ROOT/supabase/migrations/0003_logic.sql" \
-  -f "$ROOT/supabase/migrations/0004_grants_and_locks.sql" \
-  -f "$ROOT/supabase/migrations/0005_timezone.sql" \
-  -f "$ROOT/supabase/migrations/0006_nozzle_state.sql" \
-  -f "$ROOT/supabase/migrations/0007_cash_position.sql" \
-  -f "$ROOT/supabase/migrations/0008_reports.sql" \
-  -f "$ROOT/supabase/migrations/0009_payment_modes.sql" \
-  -f "$ROOT/supabase/migrations/0010_stock_and_decantation.sql" \
-  -f "$ROOT/supabase/migrations/0011_cng.sql" \
-  -f "$ROOT/supabase/migrations/0012_day_summary_v2.sql" \
-  -f "$ROOT/supabase/migrations/0013_fuel_rates_view.sql" \
-  -f "$ROOT/supabase/migrations/0014_audit_everything.sql" \
-  -f "$ROOT/supabase/migrations/0015_config_is_owners.sql" \
-  -f "$ROOT/supabase/migrations/0016_shift_money_log.sql" \
-  -f "$ROOT/supabase/migrations/0017_day_book.sql" \
-  -f "$ROOT/supabase/migrations/0018_shift_money_entry.sql" \
-  -f "$ROOT/supabase/migrations/0019_slips_belong_to_a_shift.sql" \
-  -f "$ROOT/supabase/migrations/0020_cash_is_per_filler.sql" \
-  -f "$ROOT/supabase/test/01_seed.sql" \
-  -f "$ROOT/supabase/test/02_assert.sql"
+
+args=(-f "$ROOT/supabase/test/00_auth_stub.sql")
+for m in "$ROOT"/supabase/migrations/*.sql; do args+=(-f "$m"); done
+args+=(-f "$ROOT/supabase/test/01_seed.sql" -f "$ROOT/supabase/test/02_assert.sql")
+
+psql -h localhost -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -q "${args[@]}"

@@ -4,6 +4,7 @@ import { requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getLang, getT } from '@/lib/i18n/server'
 import { formatDateLong, money, quantity, todayIST } from '@/lib/format'
+import { shiftLabel } from '@/lib/shifts'
 import type { ShiftFuelSale, ShiftMoney } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, Kicker, LinkButton, PageHeader,
@@ -146,7 +147,7 @@ export default async function MoneyLogPage({
             return (
               <Card key={s.shift_id}>
                 <CardHeader
-                  title={s.name}
+                  title={shiftLabel(t, s.name)}
                   subtitle={`${quantity(s.litres_sold)}${
                     Number(s.kg_sold) > 0 ? ` · ${quantity(s.kg_sold, 'kg')}` : ''
                   }`}
@@ -228,7 +229,7 @@ export default async function MoneyLogPage({
                           <Mode label={t('mode.card')} value={s.card} />
                           <Mode label={t('mode.upi')} value={s.upi} />
                           <Mode label={t('mode.bpcl_card')} value={s.bpcl} />
-                          <Mode label={t('tab.udhaar')} value={s.udhaar} />
+                          <Mode label={t('mode.udhaar')} value={s.udhaar} />
                         </tbody>
                         <tfoot>
                           <tr className="bg-neutral-200 font-semibold">
@@ -322,7 +323,7 @@ export default async function MoneyLogPage({
                   <Mode label={t('mode.card')} value={day.card} />
                   <Mode label={t('mode.upi')} value={day.upi} />
                   <Mode label={t('mode.bpcl_card')} value={day.bpcl} />
-                  <Mode label={t('tab.udhaar')} value={day.udhaar} />
+                  <Mode label={t('mode.udhaar')} value={day.udhaar} />
                   <Mode label={t('money.accounted')} value={day.accounted} strong />
                 </tbody>
               </TableWrap>

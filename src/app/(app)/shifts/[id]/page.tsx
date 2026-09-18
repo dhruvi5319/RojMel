@@ -3,6 +3,7 @@ import { requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import { formatDateLong } from '@/lib/format'
+import { shiftLabel } from '@/lib/shifts'
 import type {
   CngReading, CngState, NozzleReading, NozzleState, Shift, ShiftCollection, Staff,
 } from '@/lib/database.types'
@@ -60,7 +61,7 @@ export default async function ShiftPage({
   return (
     <>
       <PageHeader
-        title={`${shift.name} — ${t('shift.readings')}`}
+        title={`${shiftLabel(t, shift.name)} — ${t('shift.readings')}`}
         subtitle={formatDateLong(shift.business_date)}
         action={
           <LinkButton

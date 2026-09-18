@@ -20,22 +20,14 @@ export async function counterSlip(input: {
   slip_number: string | null
   driver_name: string | null
   business_date: string
+  /** The shift the filler said they were standing in. */
+  shift_id: string
 }): Promise<CounterResult> {
   const supabase = await createClient()
 
   if (!(input.quantity > 0)) return { error: 'Enter how much fuel went out.' }
   if (!(input.sale_rate > 0)) return { error: 'No rate set for this fuel.' }
-
-  // The trigger will attach it to the open shift, but naming it here means the
-  // slip carries the shift the filler was actually standing in.
-  const { data: openShift } = await supabase
-    .from('shifts')
-    .select('id')
-    .eq('business_date', input.business_date)
-    .eq('status', 'open')
-    .order('sort_order', { ascending: false })
-    .limit(1)
-    .maybeSingle<{ id: string }>()
+  if (!input.shift_id) return { error: 'Say which shift this slip was written in.' }
 
   let vehicle_number: string | null = null
   if (input.vehicle_id) {
@@ -49,7 +41,6 @@ export async function counterSlip(input: {
 
   const { error } = await supabase.from('credit_sales').insert({
     ...input,
-    shift_id: openShift?.id ?? null,
     vehicle_number,
   })
 

@@ -133,7 +133,7 @@ await check('settings: manager cannot edit pump details', async () => {
 
 await checkAsOwner('settings: add a fuel, then remove it', async () => {
   await page.goto(`${BASE}/settings`, { waitUntil: 'load' })
-  await openPanel('Fuels & rates')
+  await openPanel('Fuels')
   const form = page.locator('form')
     .filter({ has: page.locator('input[name=name_gu]') })
     .filter({ hasNot: page.locator('input[name=id]') })
@@ -149,14 +149,25 @@ await checkAsOwner('settings: add a fuel, then remove it', async () => {
   await gone(`Power ${STAMP}`)
 })
 
-await check('settings: change a rate', async () => {
-  await page.goto(`${BASE}/settings`)
-  await openPanel('Change rate')
-  const form = page.locator('form').filter({ has: page.locator('select[name=fuel_type_id]') })
-  await selectContaining('select[name=fuel_type_id]', 'Petrol')
+// Pump prices move daily, so the rate is a morning job on Today, not a
+// settings job — and Settings must not grow a second way to set it.
+await check('rates: set today\'s rate on Today', async () => {
+  await page.goto(`${BASE}/rates`, { waitUntil: 'load' })
+  await page.locator('button[aria-label^="Change rate"]').first().click()
+  await page.waitForTimeout(400)
+  const form = page.locator('form').filter({ has: page.locator('input[name=sale_rate]') })
   await form.locator('input[name=sale_rate]').fill('97.77')
   await submitIn(form)
   await reflects('₹97.77')
+
+  // and it says who set it
+  if (!(await body()).includes('Every rate change')) {
+    throw new Error('no rate history on the Rates page')
+  }
+  await page.goto(`${BASE}/settings`, { waitUntil: 'load' })
+  if ((await body()).includes('Change rate')) {
+    throw new Error('Settings still offers a second way to set the rate')
+  }
 })
 
 await checkAsOwner('settings: add a tank', async () => {
@@ -278,14 +289,36 @@ await check('bank: EDIT the deposit', async () => {
 })
 
 console.log('\n=== STOCK ===')
-await check('stock: record a delivery', async () => {
+// One trip from the depot, decanted into two of our tanks. The tanker is
+// entered once; the compartments are never written down.
+await check('stock: record a delivery, one tanker into two tanks', async () => {
   await page.goto(`${BASE}/stock`)
   await openPanel('Record delivery')
   const form = page.locator('form').filter({ has: page.locator('input[name=tanker_number]') })
-  await form.locator('input[name=litres]').fill('3210')
   await form.locator('input[name=tanker_number]').fill(`GJ${STAMP}`)
+  await form.locator('button', { hasText: 'Another tank' }).click()
+  await page.waitForTimeout(300)
+
+  const tanks = form.locator('select[name=line_tank_id]')
+  if ((await tanks.count()) !== 2) throw new Error('a second tank line did not appear')
+  const names = await tanks.first().locator('option').allTextContents()
+  if (names.length < 2) throw new Error('only one tank configured; cannot test a split load')
+  await tanks.nth(0).selectOption({ label: names[0] })
+  await tanks.nth(1).selectOption({ label: names[1] })
+  await form.locator('input[name=line_litres]').nth(0).fill('3210')
+  await form.locator('input[name=line_litres]').nth(1).fill('1200')
   await submitIn(form)
   await reflects(`GJ${STAMP}`)
+
+  const t2 = await body()
+  if (!t2.includes('2 × tank')) throw new Error('the two tanks did not group under one tanker')
+  if (!t2.includes('3,210.00 L') || !t2.includes('1,200.00 L')) {
+    throw new Error('both loads should be listed under the tanker')
+  }
+  // The tanker is said once, not repeated on every tank it filled.
+  if ((t2.match(new RegExp(`GJ${STAMP}`, 'g')) || []).length !== 1) {
+    throw new Error('the tanker number is repeated per tank')
+  }
 })
 
 await check('stock: record a dip', async () => {
@@ -297,40 +330,48 @@ await check('stock: record a dip', async () => {
   await reflects('4,567.00 L')
 })
 
-await check('stock: EDIT the delivery', async () => {
+await check('stock: EDIT one tank off the delivery', async () => {
   await page.goto(`${BASE}/stock`)
-  await openRowEditor(`GJ${STAMP}`)
+  await openRowEditor('3,210.00 L')
   const f = page.locator('td[colspan] form')
   await f.locator('input[name=litres]').fill('4444')
   await submitIn(f, 3000)
   await reflects('4,444.00 L')
 })
 
-await check('cng: reachable from the Pump tab', async () => {
+await check('cng: reachable from the Stock tab', async () => {
   await page.goto(`${BASE}/`)
-  await page.locator('a', { hasText: /^Fuel$/ }).first().click()
+  await page.locator('a', { hasText: /^Stock$/ }).first().click()
   await page.waitForLoadState('networkidle')
   const link = page.locator('a', { hasText: /^CNG$/ }).first()
-  if ((await link.count()) === 0) throw new Error('no CNG in the Pump tab')
+  if ((await link.count()) === 0) throw new Error('no CNG behind the Stock door')
   await link.click()
   await page.waitForURL(/\/cng/, { timeout: 15000 })
   const t2 = await body()
-  for (const w of ['KILOGRAMS SOLD', 'SCM RECEIVED', 'Dispensers', 'Gujarat Gas supply']) {
+  for (const w of ['KILOGRAMS SOLD', 'KILOGRAMS IN', 'Dispensers', 'CNG deliveries']) {
     if (!t2.includes(w)) throw new Error(`CNG page missing "${w}"`)
   }
+  // It comes on a truck and is weighed in kilos; there is no inlet meter.
+  if (/SCM/.test(t2)) throw new Error('the CNG page still talks about SCM')
 })
 
 // The manager runs the gas but never sees what it cost.
-await check('cng: manager records supply, without the cost', async () => {
+await check('cng: manager records a truck, without the cost', async () => {
   await page.goto(`${BASE}/cng`)
-  await openPanel('Record supply')
-  const f = page.locator('form').filter({ has: page.locator('input[name=scm_received]') })
-  if ((await f.locator('input[name=rate_per_scm]').count()) !== 0) {
+  await openPanel('Record a CNG delivery')
+  const f = page.locator('form').filter({ has: page.locator('input[name=kg_received]') })
+  if ((await f.locator('input[name=rate_per_kg]').count()) !== 0) {
     throw new Error('the manager was shown the gas rate')
   }
-  await f.locator('input[name=scm_received]').fill('3210')
+  await f.locator('input[name=tanker_number]').fill(`CNG${STAMP}`)
+  await f.locator('input[name=invoice_kg]').fill('3300')
+  await f.locator('input[name=kg_received]').fill('3210')
   await submitIn(f, 3000)
   await reflects('3210.000')
+  // Both sides are kilograms, so a short delivery is arithmetic.
+  if (!(await body()).includes('Less than the bill')) {
+    throw new Error('90 kg short of the challan was not flagged')
+  }
 })
 
 console.log('\n=== CUSTOMERS ===')
@@ -389,8 +430,9 @@ console.log('\n=== SHIFTS ===')
 await check('shifts: open one', async () => {
   await page.goto(`${BASE}/shifts`)
   const t = await body()
-  if (!t.includes('Morning')) {
-    await page.locator('button', { hasText: 'Morning' }).first().click()
+  if (/Morning|Evening/.test(t)) throw new Error('the shift opener still offers three')
+  if (!t.includes('Day shift')) {
+    await page.locator('button', { hasText: 'Day shift' }).first().click()
     await page.waitForURL(/\/shifts\/[0-9a-f-]{36}/, { timeout: 15000 })
   }
 })
@@ -675,13 +717,14 @@ await check('day: owner reopens', async () => {
 
 await check('cng: owner sees the gas cost', async () => {
   await page.goto(`${BASE}/cng`)
-  await openPanel('Record supply')
-  const f = page.locator('form').filter({ has: page.locator('input[name=scm_received]') })
-  if ((await f.locator('input[name=rate_per_scm]').count()) === 0) {
+  await openPanel('Record a CNG delivery')
+  const f = page.locator('form').filter({ has: page.locator('input[name=kg_received]') })
+  if ((await f.locator('input[name=rate_per_kg]').count()) === 0) {
     throw new Error('the owner cannot enter the gas rate')
   }
-  await f.locator('input[name=scm_received]').fill('3210')
-  await f.locator('input[name=rate_per_scm]').fill('48.5')
+  await f.locator('input[name=tanker_number]').fill(`CT${STAMP}`)
+  await f.locator('input[name=kg_received]').fill('3210')
+  await f.locator('input[name=rate_per_kg]').fill('48.5')
   await submitIn(f, 3000)
   await reflects('₹1,55,685.00')
 })
@@ -689,10 +732,10 @@ await check('cng: owner sees the gas cost', async () => {
 await check('stock: owner records cost', async () => {
   await page.goto(`${BASE}/stock`)
   await openPanel('Record delivery')
-  const form = page.locator('form').filter({ has: page.locator('input[name=rate_per_litre]') })
-  await form.locator('input[name=litres]').fill('5000')
+  const form = page.locator('form').filter({ has: page.locator('input[name=line_rate_per_litre]') })
+  await form.locator('input[name=line_litres]').first().fill('5000')
   await form.locator('input[name=tanker_number]').fill(`TT${STAMP}`)
-  await form.locator('input[name=rate_per_litre]').fill('84.5')
+  await form.locator('input[name=line_rate_per_litre]').first().fill('84.5')
   await submitIn(form)
   await reflects('₹4,22,500.00')
 })
@@ -707,8 +750,12 @@ await check('settings: owner renames the pump (header updates too)', async () =>
 
 await check('stock: the purchase rate is actually shown', async () => {
   await page.goto(`${BASE}/stock`)
-  const row = (await body()).split('\n').find((l) => l.includes(`TT${STAMP}`)) ?? ''
-  if (!/84\.5/.test(row)) throw new Error(`purchase rate missing from the row: "${row}"`)
+  // The tanker heads its group; the rate belongs to the tank line under it.
+  const lines = (await body()).split('\n')
+  const at = lines.findIndex((l) => l.includes(`TT${STAMP}`))
+  if (at < 0) throw new Error(`the tanker TT${STAMP} is not listed`)
+  const under = lines.slice(at + 1, at + 6).join(' | ')
+  if (!/84\.5/.test(under)) throw new Error(`purchase rate missing under the tanker: "${under}"`)
 })
 
 // A blocked write must say so. Approve the day, then have the manager try to
@@ -754,12 +801,23 @@ await check('counter: lands on its own screen', async () => {
   if (!(await body()).includes('Who is on duty?')) throw new Error('no filler picker')
 })
 
-await check('counter: a filler writes an udhaar slip', async () => {
+await check('counter: a filler writes an udhaar slip, on their shift', async () => {
   await page.goto(`${BASE}/counter`)
   await page.locator('button', { hasText: 'Ramesh' }).first().click()
   await page.waitForTimeout(400)
   await page.locator('button', { hasText: 'Udhaar slip' }).first().click()
   await page.waitForTimeout(600)
+
+  // The udhaar written in front of a filler belongs to their half of the day,
+  // so the slip screen asks which — and offers only the two the pump runs.
+  const t2 = await body()
+  for (const w of ['Day shift', 'Night shift']) {
+    if (!t2.includes(w)) throw new Error(`the counter slip screen is missing "${w}"`)
+  }
+  if (/Morning|Evening/.test(t2)) throw new Error('the counter still offers three shifts')
+  await page.locator('button', { hasText: 'Night shift' }).first().click()
+  await page.waitForTimeout(200)
+
   const sel = page.locator('select').first()
   const value = await sel.evaluate((el) => el.options[1]?.value)
   await sel.selectOption(value)
@@ -772,10 +830,47 @@ await check('counter: a filler writes an udhaar slip', async () => {
   if (!(await body()).includes('Saved')) throw new Error('no confirmation after saving')
 })
 
-await check('counter: the slip reached the books', async () => {
+await check('counter: the slip reached the books, on the shift it was tagged to', async () => {
   await login('manager@test.in')
   await page.goto(`${BASE}/credit`)
-  if (!(await body()).includes('37.00 L')) throw new Error('the counter slip is not in the credit list')
+  const lines = (await body()).split('\n')
+  const at = lines.findIndex((l) => l.includes('37.00 L'))
+  if (at < 0) throw new Error('the counter slip is not in the credit list')
+  // The row carries its shift, and the filler said night.
+  if (!lines.slice(Math.max(0, at - 3), at + 2).join(' | ').includes('Night shift')) {
+    throw new Error('the slip did not land on the night shift')
+  }
+})
+
+// A slip must name a shift, and the office form offers the same two.
+await check('credit: a slip names its shift', async () => {
+  await page.goto(`${BASE}/credit/new`, { waitUntil: 'load' })
+  const sel = page.locator('select[name=shift_name]')
+  if ((await sel.count()) === 0) throw new Error('no shift on the slip form')
+  if ((await sel.getAttribute('required')) === null) {
+    throw new Error('a slip can still be written without a shift')
+  }
+  const options = await sel.locator('option').allTextContents()
+  if (options.join(',') !== 'Day shift,Night shift') {
+    throw new Error(`the slip form offers ${options.join(', ')}`)
+  }
+
+  const cust = page.locator('select[name=customer_id]')
+  const names = await cust.locator('option').allTextContents()
+  await cust.selectOption({ label: names.find((n) => n !== '—') })
+  await sel.selectOption('Night')
+  await page.locator('input[name=quantity]').first().fill('9')
+  await page.locator('input[name=slip_number]').fill(`SH${STAMP}`)
+  await page.locator('button[type=submit]').first().click()
+  await page.waitForTimeout(3000)
+
+  await page.goto(`${BASE}/credit`, { waitUntil: 'load' })
+  const lines = (await body()).split('\n')
+  const at = lines.findIndex((l) => l.includes(`SH${STAMP}`))
+  if (at < 0) throw new Error('the slip was not saved')
+  if (!lines.slice(Math.max(0, at - 3), at + 3).join(' | ').includes('Night shift')) {
+    throw new Error('the slip does not show the shift it was written for')
+  }
 })
 
 // Equipment is the owner's, and every change is recorded.

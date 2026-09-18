@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { isOwner, requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
@@ -37,6 +38,8 @@ export default async function StockPage() {
       .from('v_deliveries')
       .select('*, fuel_purchase_costs(*)')
       .order('delivery_date', { ascending: false })
+      .order('delivery_id')
+      .order('tank_name')
       .limit(60),
     supabase
       .from('shifts')
@@ -49,6 +52,15 @@ export default async function StockPage() {
   const tanks = (tanksRes.data ?? []) as Tank[]
   const staff = (staffRes.data ?? []) as Staff[]
   const deliveries = (deliveriesRes.data ?? []) as unknown as DeliveryRow[]
+
+  // One trip from the depot fills more than one tank, so the lines sit under
+  // the tanker they came off rather than repeating it on every row.
+  const visits: DeliveryRow[][] = []
+  for (const d of deliveries) {
+    const last = visits[visits.length - 1]
+    if (last && last[0].delivery_id === d.delivery_id) last.push(d)
+    else visits.push([d])
+  }
   const shifts = (shiftsRes.data ?? []) as Shift[]
 
   return (
@@ -167,9 +179,8 @@ export default async function StockPage() {
             <TableWrap>
               <thead>
                 <tr>
-                  <Th>{t('common.date')}</Th>
                   <Th>{t('stock.tank')}</Th>
-                  <Th>{t('stock.tanker')}</Th>
+                  <Th>{t('common.fuel')}</Th>
                   <Th className="text-right">{t('stock.challan')}</Th>
                   <Th className="text-right">{t('stock.received')}</Th>
                   {owner ? (
@@ -182,63 +193,96 @@ export default async function StockPage() {
                 </tr>
               </thead>
               <tbody>
-                {deliveries.map((d) => {
-                  const cost = d.fuel_purchase_costs
+                {visits.map((lines) => {
+                  const v = lines[0]
+                  const total = lines.reduce((sum, l) => sum + Number(l.litres), 0)
                   return (
-                    <EditableRow
-                      key={d.id}
-                      span={owner ? 6 : 4}
-                      label="Edit delivery"
-                      cells={<>
-                      <Td className="whitespace-nowrap">{formatDate(d.delivery_date)}</Td>
-                      <Td className="font-medium">{d.tank_name}</Td>
-                      <Td className="tabular">
-                        {d.tanker_number ?? '—'}
-                        {d.seal_number ? (
-                          <div className="text-sm text-neutral-600">
-                            {t('stock.seal')} {d.seal_number}
+                    <Fragment key={v.delivery_id}>
+                      {/* The tanker, said once for the tanks it filled. */}
+                      <tr className="bg-neutral-200/60">
+                        <td
+                          colSpan={owner ? 6 : 4}
+                          className="border-b border-divider px-4 py-2"
+                        >
+                          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                            <span className="font-semibold">
+                              {formatDate(v.delivery_date)}
+                            </span>
+                            <span className="tabular font-semibold">
+                              {v.tanker_number ?? t('stock.visit')}
+                            </span>
+                            {v.seal_number ? (
+                              <span className="text-[12.5px] text-neutral-600">
+                                {t('stock.seal')} {v.seal_number}
+                              </span>
+                            ) : null}
+                            <span className="text-[12.5px] text-neutral-600">
+                              {lines.length > 1
+                                ? `${lines.length} × ${t('stock.tank').toLowerCase()} · ${litres(total)}`
+                                : litres(total)}
+                            </span>
+                            {v.received_by_name ? (
+                              <span className="text-[12.5px] text-neutral-600">
+                                {v.received_by_name}
+                              </span>
+                            ) : null}
                           </div>
-                        ) : null}
-                      </Td>
-                      <Td className="tabular text-right text-neutral-600">
-                        {d.invoice_litres != null ? litres(d.invoice_litres) : '—'}
-                      </Td>
-                      <Td className="tabular text-right font-semibold">
-                        {litres(d.litres)}
-                        {d.invoice_variance != null && d.invoice_variance < -0.5 ? (
-                          <div className="mt-1">
-                            <Badge tone="danger">
-                              {t('stock.shortDelivery')} {litres(Math.abs(d.invoice_variance))}
-                            </Badge>
-                          </div>
-                        ) : null}
-                      </Td>
-                      {owner ? (
-                        <>
-                          <Td className="tabular text-right">
-                            {cost ? Number(cost.rate_per_litre).toFixed(3) : '—'}
-                          </Td>
-                          <Td className="tabular text-right">
-                            {cost ? money(cost.amount) : '—'}
-                          </Td>
-                        </>
-                      ) : null}
-                      </>}
-                      actions={
-                        <DeleteButton
-                          action={deleteDelivery}
-                          fields={{ id: d.id }}
-                          label="Delete delivery"
-                        />
-                      }
-                      form={
-                        <EditDeliveryForm
-                          delivery={d}
-                          cost={cost ?? null}
-                          canSeeCost={owner}
-                        />
-                      }
-                    />
+                        </td>
+                      </tr>
+
+                      {lines.map((d) => {
+                        const cost = d.fuel_purchase_costs
+                        return (
+                          <EditableRow
+                            key={d.id}
+                            span={owner ? 5 : 3}
+                            label="Edit delivery"
+                            cells={<>
+                            <Td className="font-medium">{d.tank_name}</Td>
+                            <Td className="text-neutral-600">{d.fuel_name}</Td>
+                            <Td className="tabular text-right text-neutral-600">
+                              {d.invoice_litres != null ? litres(d.invoice_litres) : '—'}
+                            </Td>
+                            <Td className="tabular text-right font-semibold">
+                              {litres(d.litres)}
+                              {d.invoice_variance != null && d.invoice_variance < -0.5 ? (
+                                <div className="mt-1">
+                                  <Badge tone="danger">
+                                    {t('stock.shortDelivery')}{' '}
+                                    {litres(Math.abs(d.invoice_variance))}
+                                  </Badge>
+                                </div>
+                              ) : null}
+                            </Td>
+                            {owner ? (
+                              <Fragment key="cost">
+                                <Td className="tabular text-right">
+                                  {cost ? Number(cost.rate_per_litre).toFixed(3) : '—'}
+                                </Td>
+                                <Td className="tabular text-right">
+                                  {cost ? money(cost.amount) : '—'}
+                                </Td>
+                              </Fragment>
+                            ) : null}
+                            </>}
+                            actions={
+                              <DeleteButton
+                                action={deleteDelivery}
+                                fields={{ id: d.id }}
+                                label="Delete delivery"
+                              />
+                            }
+                            form={
+                              <EditDeliveryForm
+                                delivery={d}
+                                cost={cost ?? null}
+                                canSeeCost={owner}
+                              />
+                            }
+                          />
+                        )
+                      })}
+                    </Fragment>
                   )
                 })}
               </tbody>

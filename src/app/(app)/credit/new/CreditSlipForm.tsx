@@ -10,6 +10,7 @@ import {
   Alert, Field, Input, NumberInput, Select,
 } from '@/components/ui'
 import { ActionForm, SubmitButton } from '@/components/ActionForm'
+import { SHIFTS } from '@/lib/shifts'
 import { createCreditSale } from '../actions'
 
 const n = (v: string) => (v.trim() === '' ? 0 : Number(v))
@@ -207,15 +208,21 @@ export function CreditSlipForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Field label={t('shift.name')} hint={t('credit.shiftHint')}>
+        {/* Every slip belongs to a shift, or that shift looks short by
+            exactly the udhaar written during it. So there is no blank option:
+            the two shifts are always offered, and the one picked is opened if
+            the day has not got to it yet. */}
+        <Field label={t('shift.name')} required hint={t('credit.shiftHint')}>
           <Select
-            name="shift_id"
-            defaultValue={shifts.find((s) => s.status === 'open')?.id ?? ''}
+            name="shift_name"
+            required
+            defaultValue={
+              shifts.find((s) => s.status === 'open')?.name ?? SHIFTS[0].name
+            }
           >
-            <option value="">—</option>
-            {shifts.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
+            {SHIFTS.map((s) => (
+              <option key={s.name} value={s.name}>
+                {t(s.key)}
               </option>
             ))}
           </Select>

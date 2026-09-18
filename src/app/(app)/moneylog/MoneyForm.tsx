@@ -87,7 +87,7 @@ export function MoneyForm({
           caught while it is still in the hand. */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] bg-neutral-200 px-5 py-3 text-[13.5px]">
         <span>
-          {t('tab.udhaar')} <strong className="tabular">{money(udhaar)}</strong>
+          {t('mode.udhaar')} <strong className="tabular">{money(udhaar)}</strong>
         </span>
         <span
           className={`tabular font-semibold ${

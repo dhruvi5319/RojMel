@@ -4,6 +4,40 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { changed, friendly, type FormState } from '@/lib/actions'
+import { SHIFTS } from '@/lib/shifts'
+
+/**
+ * The shift a slip belongs to, opening it if the day has not got to it yet.
+ *
+ * A slip with no shift makes that shift look short by exactly the udhaar
+ * written during it, so the form insists on one — and "the shift does not
+ * exist yet" must not be a reason the manager cannot write the slip.
+ */
+async function shiftIdFor(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  date: string,
+  name: string,
+): Promise<{ id?: string; error?: string }> {
+  const chosen = SHIFTS.find((s) => s.name === name) ?? SHIFTS[0]
+
+  const { data: existing } = await supabase
+    .from('shifts')
+    .select('id')
+    .eq('business_date', date)
+    .eq('name', chosen.name)
+    .maybeSingle<{ id: string }>()
+
+  if (existing) return { id: existing.id }
+
+  const { data, error } = await supabase
+    .from('shifts')
+    .insert({ business_date: date, name: chosen.name, sort_order: chosen.order })
+    .select('id')
+    .single()
+
+  if (error) return { error: friendly(error) }
+  return { id: data.id }
+}
 
 export async function createCreditSale(
   _prev: FormState,
@@ -30,14 +64,18 @@ export async function createCreditSale(
     vehicle_number = v?.vehicle_number ?? ''
   }
 
+  const business_date = String(data.get('business_date'))
+  const shift = await shiftIdFor(supabase, business_date, String(data.get('shift_name') ?? ''))
+  if (shift.error) return { error: shift.error }
+
   const { error } = await supabase.from('credit_sales').insert({
-    business_date: String(data.get('business_date')),
+    business_date,
     customer_id: String(data.get('customer_id')),
     vehicle_id,
     vehicle_number: vehicle_number.toUpperCase().replace(/\s+/g, '') || null,
     fuel_type_id: String(data.get('fuel_type_id')),
     nozzle_id: String(data.get('nozzle_id') ?? '') || null,
-    shift_id: String(data.get('shift_id') ?? '') || null,
+    shift_id: shift.id,
     staff_id: String(data.get('staff_id') ?? '') || null,
     slip_number: String(data.get('slip_number') ?? '').trim() || null,
     driver_name: String(data.get('driver_name') ?? '').trim() || null,
@@ -85,11 +123,16 @@ export async function updateCreditSale(
   if (!(qty > 0)) return { error: 'Enter how much fuel went out.' }
   if (!(sale_rate > 0)) return { error: 'Enter the rate per litre.' }
 
+  const business_date = String(data.get('business_date'))
+  const shift = await shiftIdFor(supabase, business_date, String(data.get('shift_name') ?? ''))
+  if (shift.error) return { error: shift.error }
+
   const outcome = changed(
     await supabase
       .from('credit_sales')
       .update({
-        business_date: String(data.get('business_date')),
+        business_date,
+        shift_id: shift.id,
         quantity: qty,
         sale_rate,
         vehicle_number:

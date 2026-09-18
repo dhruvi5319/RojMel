@@ -9,8 +9,13 @@ import type { UserRole } from '@/lib/database.types'
  * hunting for the bank deposit thinks to look under Pump, so the feature was
  * hidden while sitting two clicks away. Splitting that door keeps the spirit
  * of the idea (few, obvious choices) and fixes the junk drawer.
+ *
+ * The doors are named for what is behind them, not for the trade's word for
+ * it: Customers, not Udhaar — the udhaar is what a customer owes, and the
+ * door is the people. Stock, not Fuel, because what you go there to ask is
+ * how much is left. A door and a page inside it never share a name.
  */
-export type TabKey = 'today' | 'udhaar' | 'fuel' | 'cash' | 'more'
+export type TabKey = 'today' | 'customers' | 'stock' | 'expense' | 'more'
 
 export interface NavItem {
   href: string
@@ -35,7 +40,7 @@ export const TABS: { key: TabKey; label: DictKey; items: NavItem[] }[] = [
     ],
   },
   {
-    key: 'udhaar',
+    key: 'customers',
     label: 'tab.udhaar',
     items: [
       { href: '/customers', key: 'nav.customers' },
@@ -44,7 +49,7 @@ export const TABS: { key: TabKey; label: DictKey; items: NavItem[] }[] = [
     ],
   },
   {
-    key: 'fuel',
+    key: 'stock',
     label: 'tab.fuel',
     items: [
       { href: '/stock', key: 'nav.stock' },
@@ -52,7 +57,7 @@ export const TABS: { key: TabKey; label: DictKey; items: NavItem[] }[] = [
     ],
   },
   {
-    key: 'cash',
+    key: 'expense',
     label: 'tab.cash',
     items: [
       { href: '/expenses', key: 'nav.expenses' },

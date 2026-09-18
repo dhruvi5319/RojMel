@@ -2,12 +2,20 @@
 
 import { useT } from '@/lib/i18n/client'
 import type { CreditSale } from '@/lib/database.types'
-import { Alert, Field, Input, NumberInput } from '@/components/ui'
+import { Alert, Field, Input, NumberInput, Select } from '@/components/ui'
 import { ActionForm, SubmitButton } from '@/components/ActionForm'
+import { SHIFTS } from '@/lib/shifts'
 import { updateCreditSale } from './actions'
 
 /** Corrects a slip. Once it is on an invoice the figures are frozen. */
-export function EditSlipForm({ slip }: { slip: CreditSale }) {
+export function EditSlipForm({
+  slip,
+  shiftName,
+}: {
+  slip: CreditSale
+  /** The name of the shift it is on now, if any. */
+  shiftName?: string | null
+}) {
   const t = useT()
 
   if (slip.invoice_id) {
@@ -51,6 +59,19 @@ export function EditSlipForm({ slip }: { slip: CreditSale }) {
         </Field>
         <Field label={t('credit.slipNo')}>
           <Input name="slip_number" defaultValue={slip.slip_number ?? ''} />
+        </Field>
+      </div>
+      {/* Moving a slip between shifts moves money between two fillers, which
+          is exactly why it must be correctable here. */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label={t('shift.name')} required hint={t('credit.shiftHint')}>
+          <Select name="shift_name" required defaultValue={shiftName ?? SHIFTS[0].name}>
+            {SHIFTS.map((sh) => (
+              <option key={sh.name} value={sh.name}>
+                {t(sh.key)}
+              </option>
+            ))}
+          </Select>
         </Field>
       </div>
       <div>

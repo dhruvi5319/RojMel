@@ -4,6 +4,7 @@ import { requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import { formatDateLong, litres, money, todayIST } from '@/lib/format'
+import { shiftLabel } from '@/lib/shifts'
 import type { Shift } from '@/lib/database.types'
 import { Badge, Card, CardHeader, Empty, PageHeader, Td, TableWrap, Th } from '@/components/ui'
 import { OpenShiftForm } from './OpenShiftForm'
@@ -80,7 +81,7 @@ export default async function ShiftsPage({
                 )
                 return (
                   <tr key={s.id}>
-                    <Td className="font-medium">{s.name}</Td>
+                    <Td className="font-medium">{shiftLabel(t, s.name)}</Td>
                     <Td>
                       <Badge tone={statusTone[s.status]}>{t(`shift.${s.status}`)}</Badge>
                     </Td>

@@ -50,12 +50,51 @@ select assert_eq((select unbilled_amount from v_customer_balances where name = '
 -- are part of that 500, not on top of it.
 select assert_eq((select book_stock_litres from v_tank_stock where name = 'Tank 2 Diesel'),
                  13470.000::numeric, 'diesel stock follows what was decanted');
+-- Petrol: 5,000 opening + 3,985 off the same tanker's other compartment
+-- - 198 sold, the 2 test litres having gone back in.
 select assert_eq((select book_stock_litres from v_tank_stock where name = 'Tank 1 Petrol'),
-                 4802.000::numeric, 'petrol stock (test fuel went back in)');
+                 8787.000::numeric, 'petrol stock (test fuel went back in)');
 
 -- The permission line that matters: no sight of what fuel cost.
 select assert_eq((select count(*) from fuel_purchase_costs), 0::bigint, 'manager sees no purchase costs');
-select assert_eq((select count(*) from fuel_purchases), 1::bigint, 'manager still sees the delivery itself');
+select assert_eq((select count(*) from fuel_purchases), 2::bigint, 'manager still sees the delivery itself');
+
+-- ------------------------------------------------ two shifts, day and night --
+-- The pump runs two, and a slip belongs to one of them: udhaar not on a shift
+-- makes that shift look short by exactly the amount written during it.
+select assert_eq((select count(*) from ensure_day_shifts(current_date)), 2::bigint,
+                 'a day has its two shifts');
+select assert_eq((select string_agg(name, ',' order by sort_order)
+                    from ensure_day_shifts(current_date)),
+                 'Day,Night', 'named for the halves of the day');
+select assert_eq((select count(*) from ensure_day_shifts(current_date)), 2::bigint,
+                 'and asking twice does not open four');
+
+-- A slip written with no shift named still lands on one, so no udhaar floats
+-- free of both fillers.
+insert into credit_sales (customer_id, business_date, fuel_type_id, quantity, sale_rate)
+  values ('c1111111-0000-0000-0000-000000000001', current_date,
+          'f1111111-0000-0000-0000-000000000002', 10, 89.40);
+select assert_eq((select count(*) from credit_sales
+                   where business_date = current_date and shift_id is null),
+                 0::bigint, 'no slip is left off a shift');
+
+-- ---------------------------------------------------- one tanker, two tanks --
+-- A tanker comes from the depot with compartments and decants into more than
+-- one of our tanks. The compartments are not written down; the tanks are, and
+-- they all hang off the one trip.
+select assert_eq((select count(*) from fuel_deliveries), 1::bigint,
+                 'the two loads came off one tanker');
+select assert_eq((select tanks_filled from v_tanker_visits where tanker_number = 'GJ18TT9999'),
+                 2::bigint, 'the trip filled two tanks');
+select assert_eq((select fuels from v_tanker_visits where tanker_number = 'GJ18TT9999'),
+                 'Diesel + Petrol', 'and brought both products');
+select assert_eq((select litres from v_tanker_visits where tanker_number = 'GJ18TT9999'),
+                 9955.000::numeric, 'the trip dropped both loads together');
+-- The date lives on the trip; the line is kept in step so the stock
+-- arithmetic and the index can read it without the two ever disagreeing.
+select assert_eq((select count(distinct delivery_date) from fuel_purchases), 1::bigint,
+                 'every line carries its tanker''s date');
 select assert_raises($$ select margin_report(current_date - 30, current_date) $$, 'manager margin report');
 
 -- Things she is meant to be able to do.
@@ -219,14 +258,19 @@ select assert_raises($$
   values ('11111111-0000-0000-0000-00000000000b', current_date, null, 9999) $$,
   'nor the day-end dip');
 
--- Ordered 6,000 · challan 6,000 · into the tank 5,970.
-select assert_eq((select invoice_variance from v_deliveries where tanker_number = 'GJ18TT9999'),
+-- Ordered 6,000 · challan 6,000 · into the diesel tank 5,970. The same trip
+-- also dropped petrol, so a delivery line is named by its tank, not its tanker.
+select assert_eq((select invoice_variance from v_deliveries
+                   where tanker_number = 'GJ18TT9999' and tank_name = 'Tank 2 Diesel'),
                  -30.000::numeric, 'short against the challan');
-select assert_eq((select order_variance from v_deliveries where tanker_number = 'GJ18TT9999'),
+select assert_eq((select order_variance from v_deliveries
+                   where tanker_number = 'GJ18TT9999' and tank_name = 'Tank 2 Diesel'),
                  -30.000::numeric, 'short against the order');
-select assert_eq((select tanker_dip_litres from v_deliveries where tanker_number = 'GJ18TT9999'),
+select assert_eq((select tanker_dip_litres from v_deliveries
+                   where tanker_number = 'GJ18TT9999' and tank_name = 'Tank 2 Diesel'),
                  5980.000::numeric, 'the tanker dip at rest is kept');
-select assert_eq((select seals_intact from v_deliveries where tanker_number = 'GJ18TT9999'),
+select assert_eq((select seals_intact from v_deliveries
+                   where tanker_number = 'GJ18TT9999' and tank_name = 'Tank 2 Diesel'),
                  true, 'seal check is kept');
 
 -- Gas cost is margin, so the manager must not see it.
@@ -513,16 +557,19 @@ select assert_eq((select udhaar from v_shift_money
                    where shift_id = '11111111-0000-0000-0000-0000000000c1'),
                  27652.00::numeric, 'and counts toward that shift');
 
--- A shift that is closed does not collect slips written afterwards.
-update shifts set status = 'submitted' where id = '11111111-0000-0000-0000-0000000000c1';
+-- A slip written after every shift is closed still belongs to one. It used to
+-- belong to nothing, which made the day's udhaar float free of both fillers
+-- and each of them look short by their own slips.
+update shifts set status = 'submitted' where business_date = current_date;
 insert into credit_sales (business_date, customer_id, fuel_type_id, quantity, sale_rate, slip_number)
   values (current_date, 'c1111111-0000-0000-0000-000000000001',
           'f1111111-0000-0000-0000-000000000002', 5, 89.200, 'AUTO-2');
 select assert_eq((select shift_id from credit_sales where slip_number = 'AUTO-2'),
-                 null::uuid, 'no open shift, so it waits to be attached');
-select assert_eq((select amount from v_unattached_udhaar
+                 '11111111-0000-0000-0000-0000000000c1'::uuid,
+                 'a late slip still lands on the day''s shift');
+select assert_eq((select count(*) from v_unattached_udhaar
                    where business_date = current_date),
-                 446.00::numeric, 'and shows as udhaar belonging to no shift');
+                 0::bigint, 'and no udhaar belongs to nobody');
 rollback;
 
 \echo ''

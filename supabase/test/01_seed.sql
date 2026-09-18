@@ -73,7 +73,7 @@ insert into vehicles (id, station_id, customer_id, vehicle_number, driver_name) 
 -- A morning shift: the meters moved, 2 litres of petrol were test-drawn and
 -- poured back into the tank.
 insert into shifts (id, station_id, business_date, name, sort_order, status) values
-  ('11111111-0000-0000-0000-0000000000c1', '11111111-1111-1111-1111-111111111111', current_date, 'Morning', 1, 'open');
+  ('11111111-0000-0000-0000-0000000000c1', '11111111-1111-1111-1111-111111111111', current_date, 'Day', 1, 'open');
 
 insert into nozzle_readings (station_id, shift_id, nozzle_id, staff_id, opening_reading, closing_reading, test_litres, sale_rate) values
   ('11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-000000000011', '11111111-0000-0000-0000-00000000000f', 1000, 1200, 2, 96.500),
@@ -105,12 +105,22 @@ insert into payments (station_id, customer_id, payment_date, amount, mode, refer
 insert into bank_deposits (station_id, deposit_date, bank_name, amount, slip_reference, deposited_by) values
   ('11111111-1111-1111-1111-111111111111', current_date, 'Bank of Baroda', 40000, 'SLIP-77', 'aaaaaaaa-0000-0000-0000-000000000003');
 
--- A tanker came in, and its cost is recorded separately (owner eyes only).
-insert into fuel_purchases (id, station_id, tank_id, fuel_type_id, delivery_date, tanker_number,
+-- A tanker came in from the depot carrying both products in its compartments,
+-- and decanted into two of our tanks. The cost is recorded separately, per
+-- product, and stays owner-only.
+insert into fuel_deliveries (id, station_id, delivery_date, tanker_number,
+                             seal_number, seals_intact, water_check_ok) values
+  ('11111111-0000-0000-0000-0000000000aa', '11111111-1111-1111-1111-111111111111', current_date, 'GJ18TT9999',
+   'SL-4471', true, true);
+
+insert into fuel_purchases (id, station_id, delivery_id, tank_id, fuel_type_id, delivery_date,
                             ordered_litres, invoice_litres, tanker_dip_litres, litres,
-                            seal_number, seals_intact, water_check_ok, density, temperature_c) values
-  ('11111111-0000-0000-0000-0000000000ab', '11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-00000000000b', 'f1111111-0000-0000-0000-000000000002', current_date, 'GJ18TT9999',
-   6000, 6000, 5980, 5970, 'SL-4471', true, true, 0.832, 31.5);
+                            density, temperature_c) values
+  ('11111111-0000-0000-0000-0000000000ab', '11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000aa', '11111111-0000-0000-0000-00000000000b', 'f1111111-0000-0000-0000-000000000002', current_date,
+   6000, 6000, 5980, 5970, 0.832, 31.5),
+  -- the petrol compartment off the same trip, into the other tank
+  ('11111111-0000-0000-0000-0000000000ac', '11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000aa', '11111111-0000-0000-0000-00000000000a', 'f1111111-0000-0000-0000-000000000001', current_date,
+   4000, 4000, 3990, 3985, 0.740, 31.5);
 insert into fuel_purchase_costs (purchase_id, station_id, supplier, rate_per_litre, basic_amount, vat_rate, vat_amount, amount) values
   ('11111111-0000-0000-0000-0000000000ab', '11111111-1111-1111-1111-111111111111', 'BPCL', 84.000, 401184, 25.000, 100296, 501480);
 

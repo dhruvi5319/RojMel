@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import { formatDate, money, monthEnd, monthStart, todayIST } from '@/lib/format'
 import type {
-  CngState, CngSupply, CngSupplyCost, FuelType, SalesByFuel,
+  CngState, CngSupply, CngSupplyCost, FuelType, SalesByFuel, Staff,
 } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th, rowClass,
@@ -22,10 +22,10 @@ interface SupplyRow extends CngSupply {
 }
 
 /**
- * CNG has no tank and no dip, so it does not belong on the Stock page. What it
- * has instead is an inlet meter: Gujarat Gas bills standard cubic metres in,
- * and the dispensers sell kilograms out. The gap between the two is compression
- * and line loss, and watching it is the only stock control CNG has.
+ * CNG has no tank and no dip, so it does not belong on the Stock page. It
+ * arrives on its own truck, weighed in kilograms — the same unit the
+ * dispensers sell in. So the only stock control it has is arithmetic: what
+ * the trucks brought, less what the dispensers sold.
  */
 export default async function CngPage({
   searchParams,
@@ -41,7 +41,7 @@ export default async function CngPage({
   const from = monthStart(`${month}-01`)
   const to = monthEnd(`${month}-01`)
 
-  const [fuelsRes, dispensersRes, supplyRes, salesRes] = await Promise.all([
+  const [fuelsRes, dispensersRes, supplyRes, salesRes, staffRes] = await Promise.all([
     supabase.from('fuel_types').select('*').eq('unit', 'kg').order('sort_order'),
     supabase.from('v_cng_state').select('*').order('sort_order'),
     supabase
@@ -51,25 +51,26 @@ export default async function CngPage({
       .lte('supply_date', to)
       .order('supply_date', { ascending: false }),
     supabase.rpc('sales_by_fuel', { p_from: from, p_to: to }),
+    supabase.from('staff').select('*').eq('is_active', true).order('name'),
   ])
 
   const fuels = (fuelsRes.data ?? []) as FuelType[]
   const dispensers = (dispensersRes.data ?? []) as CngState[]
   const supply = (supplyRes.data ?? []) as unknown as SupplyRow[]
   const byFuel = (salesRes.data ?? []) as SalesByFuel[]
+  const staff = (staffRes.data ?? []) as Staff[]
 
   const cng = byFuel.find((f) => f.unit === 'kg')
   const kgSold = Number(cng?.quantity ?? 0)
   const salesValue = Number(cng?.sales_value ?? 0)
-  const scmIn = supply.reduce((s, r) => s + Number(r.scm_received), 0)
+  const kgIn = supply.reduce((s, r) => s + Number(r.kg_received), 0)
   const gasCost = supply.reduce(
     (s, r) => s + Number(r.cng_supply_costs?.amount ?? 0),
     0,
   )
 
-  // Gas composition varies, so the honest figure is the one the pump actually
-  // achieved rather than a textbook conversion factor.
-  const kgPerScm = scmIn > 0 ? kgSold / scmIn : null
+  // Both sides are kilograms, so this is a real figure and not a conversion.
+  const leftToSell = kgIn - kgSold
 
   if (fuels.length === 0) {
     return (
@@ -97,14 +98,14 @@ export default async function CngPage({
         />
         <Stat label={t('rep.salesValue')} value={money(salesValue)} />
         <Stat
-          label={t('cng.scmReceived')}
-          value={scmIn.toFixed(2)}
-          hint={t('cng.fromGujaratGas')}
+          label={t('cng.kgReceived')}
+          value={`${kgIn.toFixed(2)} kg`}
+          hint={t('cng.broughtIn')}
         />
         <Stat
-          label={t('cng.kgPerScm')}
-          value={kgPerScm != null ? kgPerScm.toFixed(3) : '—'}
-          hint={t('cng.kgPerScmHint')}
+          label={t('cng.stillToSell')}
+          value={kgIn > 0 ? `${leftToSell.toFixed(2)} kg` : '—'}
+          hint={t('cng.stillToSellHint')}
         />
       </div>
 
@@ -120,7 +121,7 @@ export default async function CngPage({
 
       <div className="mt-5 flex flex-col gap-3">
         <Collapsible title={t('cng.recordSupply')}>
-          <SupplyForm today={today} canSeeCost={owner} />
+          <SupplyForm today={today} canSeeCost={owner} staff={staff} />
         </Collapsible>
         <Collapsible title={t('cng.addDispenser')}>
           <DispenserForm fuels={fuels} />
@@ -189,11 +190,13 @@ export default async function CngPage({
               <thead>
                 <tr>
                   <Th>{t('common.date')}</Th>
-                  <Th className="text-right">{t('cng.scmReceived')}</Th>
+                  <Th>{t('stock.tanker')}</Th>
+                  <Th className="text-right">{t('cng.challanKg')}</Th>
+                  <Th className="text-right">{t('cng.kgReceived')}</Th>
                   <Th>{t('inv.number')}</Th>
                   {owner ? (
                     <>
-                      <Th className="text-right">{t('cng.ratePerScm')}</Th>
+                      <Th className="text-right">{t('cng.ratePerKg')}</Th>
                       <Th className="text-right">{t('common.amount')}</Th>
                     </>
                   ) : null}
@@ -206,8 +209,21 @@ export default async function CngPage({
                   return (
                     <tr key={r.id} className={rowClass}>
                       <Td className="whitespace-nowrap">{formatDate(r.supply_date)}</Td>
+                      <Td className="tabular">{r.tanker_number ?? '—'}</Td>
+                      <Td className="tabular text-right text-neutral-600">
+                        {r.invoice_kg != null ? Number(r.invoice_kg).toFixed(3) : '—'}
+                      </Td>
                       <Td className="tabular text-right font-semibold">
-                        {Number(r.scm_received).toFixed(3)}
+                        {Number(r.kg_received).toFixed(3)}
+                        {r.invoice_kg != null &&
+                        Number(r.kg_received) - Number(r.invoice_kg) < -0.5 ? (
+                          <div className="mt-1">
+                            <Badge tone="danger">
+                              {t('stock.shortDelivery')}{' '}
+                              {(Number(r.invoice_kg) - Number(r.kg_received)).toFixed(2)} kg
+                            </Badge>
+                          </div>
+                        ) : null}
                       </Td>
                       <Td className="tabular text-neutral-600">
                         {r.invoice_number ?? '—'}
@@ -215,7 +231,7 @@ export default async function CngPage({
                       {owner ? (
                         <>
                           <Td className="tabular text-right">
-                            {cost ? Number(cost.rate_per_scm).toFixed(3) : '—'}
+                            {cost ? Number(cost.rate_per_kg).toFixed(3) : '—'}
                           </Td>
                           <Td className="tabular text-right">
                             {cost ? money(cost.amount) : '—'}

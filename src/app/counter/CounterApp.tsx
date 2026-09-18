@@ -11,6 +11,7 @@ import type {
 } from '@/lib/database.types'
 import { LanguageSeg } from '@/components/AppNav'
 import { Alert, Badge, Button, Card, Field, NumberInput, Select, Input } from '@/components/ui'
+import { SHIFTS, shiftLabel } from '@/lib/shifts'
 import { counterReading, counterSlip, ensureShift } from './actions'
 
 export interface CounterCustomer {
@@ -22,11 +23,6 @@ type View = 'pick' | 'menu' | 'slip' | 'reading' | 'done'
 
 const n = (v: string) => (v.trim() === '' ? 0 : Number(v))
 
-const SHIFT_OPTIONS = [
-  { name: 'Morning', key: 'shift.morning', order: 1 },
-  { name: 'Evening', key: 'shift.evening', order: 2 },
-  { name: 'Night', key: 'shift.night', order: 3 },
-] as const
 
 export function CounterApp({
   stationName,
@@ -237,11 +233,23 @@ export function CounterApp({
             nozzles={nozzles}
             pending={pending}
             error={error}
+            shifts={shifts}
             onBack={() => setView('menu')}
-            onSubmit={(payload) => {
+            onSubmit={(payload, shiftName, shiftOrder) => {
               setError(null)
               startTransition(async () => {
-                const result = await counterSlip(payload)
+                // The slip must land on a shift, so if the day's shift has not
+                // been opened yet, opening it is part of writing the slip.
+                let shiftId = payload.shift_id
+                if (!shiftId) {
+                  const sh = await ensureShift(shiftName, shiftOrder, today)
+                  if ('error' in sh && sh.error) {
+                    setError(sh.error)
+                    return
+                  }
+                  shiftId = (sh as { id: string }).id
+                }
+                const result = await counterSlip({ ...payload, shift_id: shiftId })
                 if (result.error) setError(result.error)
                 else setView('done')
               })
@@ -340,6 +348,7 @@ function SlipForm({
   vehicles,
   fuels,
   nozzles,
+  shifts,
   pending,
   error,
   onBack,
@@ -351,10 +360,17 @@ function SlipForm({
   vehicles: Vehicle[]
   fuels: FuelType[]
   nozzles: NozzleState[]
+  shifts: Shift[]
   pending: boolean
   error: string | null
   onBack: () => void
-  onSubmit: (payload: Parameters<typeof counterSlip>[0]) => void
+  onSubmit: (
+    payload: Omit<Parameters<typeof counterSlip>[0], 'shift_id'> & {
+      shift_id: string | null
+    },
+    shiftName: string,
+    shiftOrder: number,
+  ) => void
 }) {
   const t = useT()
   // Default to a fuel that actually has a price; one without a rate cannot be
@@ -370,6 +386,13 @@ function SlipForm({
   const [amount, setAmount] = useState('')
   const [slipNo, setSlipNo] = useState('')
   const [driver, setDriver] = useState('')
+  // The udhaar written in front of a filler belongs to their half of the day,
+  // so the slip says which — the same two buttons as the meter reading.
+  const [shiftChoice, setShiftChoice] = useState(
+    shifts.find((sh) => sh.status === 'open')?.name ?? SHIFTS[0].name,
+  )
+  const existingShift = shifts.find((sh) => sh.name === shiftChoice)
+  const shiftOption = SHIFTS.find((o) => o.name === shiftChoice)
 
   const rate = useMemo(
     () => nozzles.find((z) => z.fuel_type_id === fuelId)?.sale_rate ?? 0,
@@ -383,6 +406,25 @@ function SlipForm({
       <BackBar label={t('counter.newSlip')} onBack={onBack} />
 
       <Card className="flex flex-col gap-4 p-5">
+        <Field label={t('shift.name')} required hint={t('shift.pickOne')}>
+          <div className="grid grid-cols-2 gap-2">
+            {SHIFTS.map((sh) => (
+              <button
+                key={sh.name}
+                type="button"
+                onClick={() => setShiftChoice(sh.name)}
+                className={`rounded-full px-2 py-3 font-semibold transition ${
+                  shiftChoice === sh.name
+                    ? 'bg-accent text-bg'
+                    : 'bg-surface text-neutral-700 hover:bg-accent-100'
+                }`}
+              >
+                {t(sh.key)}
+              </button>
+            ))}
+          </div>
+        </Field>
+
         <Field label={t('cust.title')} required>
           <Select
             value={customerId}
@@ -521,7 +563,8 @@ function SlipForm({
               slip_number: slipNo.trim() || null,
               driver_name: driver.trim() || null,
               business_date: today,
-            })
+              shift_id: existingShift?.id ?? null,
+            }, shiftChoice, shiftOption?.order ?? 1)
           }
         >
           {pending ? t('common.saving') : t('common.save')}
@@ -558,7 +601,7 @@ function ReadingForm({
 }) {
   const t = useT()
   const [shiftChoice, setShiftChoice] = useState(
-    shifts[0]?.name ?? SHIFT_OPTIONS[0].name,
+    shifts[0]?.name ?? SHIFTS[0].name,
   )
   const [nozzleId, setNozzleId] = useState(nozzles[0]?.nozzle_id ?? '')
   const nozzle = nozzles.find((z) => z.nozzle_id === nozzleId)
@@ -570,7 +613,7 @@ function ReadingForm({
   const l = closing.trim() === '' ? 0 : n(closing) - n(opening) - n(test)
   const rate = Number(nozzle?.sale_rate ?? 0)
   const existingShift = shifts.find((s) => s.name === shiftChoice)
-  const option = SHIFT_OPTIONS.find((o) => o.name === shiftChoice)
+  const option = SHIFTS.find((o) => o.name === shiftChoice)
 
   return (
     <div>
@@ -578,8 +621,8 @@ function ReadingForm({
 
       <Card className="flex flex-col gap-4 p-5">
         <Field label={t('shift.name')} required>
-          <div className="grid grid-cols-3 gap-2">
-            {SHIFT_OPTIONS.map((s) => (
+          <div className="grid grid-cols-2 gap-2">
+            {SHIFTS.map((s) => (
               <button
                 key={s.name}
                 type="button"
@@ -651,7 +694,7 @@ function ReadingForm({
 
         {existingShift ? (
           <Badge tone="accent">
-            {existingShift.name} — {t(`shift.${existingShift.status}`)}
+            {shiftLabel(t, existingShift.name)} — {t(`shift.${existingShift.status}`)}
           </Badge>
         ) : null}
 

@@ -40,9 +40,9 @@ const ENTITIES: Record<string, string> = {
   tanks: 'Tank',
   nozzles: 'Nozzle',
   cng_dispensers: 'CNG dispenser',
-  fuel_purchases: 'Tanker delivery',
+  fuel_purchases: 'Into a tank',
   fuel_purchase_costs: 'Purchase cost',
-  cng_supply: 'Gas supply',
+  cng_supply: 'CNG delivery',
   cng_supply_costs: 'Gas cost',
   tank_dips: 'Dip',
   bank_deposits: 'Bank deposit',
@@ -57,12 +57,13 @@ const ENTITIES: Record<string, string> = {
   shifts: 'Shift',
   profiles: 'Login',
   stations: 'Pump details',
+  fuel_deliveries: 'Tanker',
 }
 
 /** Fields worth showing in a one-line summary, in this order. */
 const INTERESTING = [
   'amount', 'sale_rate', 'litres', 'quantity', 'closing_reading', 'dip_litres',
-  'scm_received', 'counted_cash', 'credit_limit', 'name', 'category',
+  'kg_received', 'counted_cash', 'credit_limit', 'name', 'category',
   'bank_name', 'status', 'is_active', 'reason', 'remarks', 'date',
 ]
 

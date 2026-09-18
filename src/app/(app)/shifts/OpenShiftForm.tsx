@@ -4,13 +4,10 @@ import { useState, useTransition } from 'react'
 import { Plus } from 'lucide-react'
 import { useT } from '@/lib/i18n/client'
 import { Alert, Button, Card, CardHeader } from '@/components/ui'
+import { SHIFTS } from '@/lib/shifts'
 import { openShift } from './actions'
 
-const SHIFTS = [
-  { name: 'Morning', key: 'shift.morning', order: 1 },
-  { name: 'Evening', key: 'shift.evening', order: 2 },
-  { name: 'Night', key: 'shift.night', order: 3 },
-] as const
+
 
 export function OpenShiftForm({ date, taken }: { date: string; taken: string[] }) {
   const t = useT()

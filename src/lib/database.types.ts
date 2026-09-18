@@ -229,8 +229,8 @@ export interface FuelPurchase {
   station_id: string
   tank_id: string
   fuel_type_id: string
+  delivery_id: string
   delivery_date: string
-  tanker_number: string | null
   /** indented from the company */
   ordered_litres: number | null
   /** what the challan says was loaded */
@@ -241,13 +241,9 @@ export interface FuelPurchase {
   litres: number
   dip_before_litres: number | null
   dip_after_litres: number | null
-  seal_number: string | null
-  seals_intact: boolean | null
-  water_check_ok: boolean | null
   temperature_c: number | null
   decanted_at: string | null
   density: number | null
-  received_by: string | null
   notes: string | null
   created_by: string | null
   created_at: string
@@ -507,9 +503,10 @@ export interface CngSupply {
   id: string
   station_id: string
   supply_date: string
-  opening_scm: number | null
-  closing_scm: number | null
-  scm_received: number
+  tanker_number: string | null
+  invoice_kg: number | null
+  received_by: string | null
+  kg_received: number
   invoice_number: string | null
   notes: string | null
   created_by: string | null
@@ -521,7 +518,7 @@ export interface CngSupplyCost {
   supply_id: string
   station_id: string
   supplier: string | null
-  rate_per_scm: number
+  rate_per_kg: number
   basic_amount: number | null
   vat_rate: number | null
   vat_amount: number | null
@@ -547,15 +544,20 @@ export interface CngState {
 export interface Delivery {
   id: string
   station_id: string
+  /** the tanker trip this line came off — one trip fills several tanks */
+  delivery_id: string
   delivery_date: string
   tank_id: string
   tank_name: string
   fuel_type_id: string
   fuel_name: string
+  unit: 'L' | 'kg'
   tanker_number: string | null
   seal_number: string | null
   seals_intact: boolean | null
   water_check_ok: boolean | null
+  received_by: string | null
+  received_by_name: string | null
   density: number | null
   temperature_c: number | null
   ordered_litres: number | null
@@ -570,6 +572,24 @@ export interface Delivery {
   /** negative means a short delivery against the challan */
   invoice_variance: number | null
   order_variance: number | null
+}
+
+/** view: v_tanker_visits — one row per trip from the depot, with what it dropped */
+export interface TankerVisit {
+  id: string
+  station_id: string
+  delivery_date: string
+  tanker_number: string | null
+  seal_number: string | null
+  seals_intact: boolean | null
+  water_check_ok: boolean | null
+  received_by_name: string | null
+  notes: string | null
+  tanks_filled: number
+  litres: number
+  invoice_litres: number
+  /** 'Petrol + Diesel' when one trip brought both */
+  fuels: string | null
 }
 
 /** view: v_fuel_rates — the rate in force per fuel, and whether it is today's */

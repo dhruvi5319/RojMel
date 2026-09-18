@@ -50,6 +50,7 @@ export function ActionForm({
   className = 'flex flex-col gap-4',
   onDone,
   resetOnSuccess = false,
+  onSuccess,
 }: {
   action: FormAction
   children: React.ReactNode
@@ -57,12 +58,19 @@ export function ActionForm({
   onDone?: React.ReactNode
   /** For add-forms: clear the fields once the entry is saved. */
   resetOnSuccess?: boolean
+  /** For a form whose shape is state, not fields — reset() cannot reach it. */
+  onSuccess?: () => void
 }) {
   const [state, formAction] = useActionState(action, {})
   const ref = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
-    if (resetOnSuccess && state.ok) ref.current?.reset()
+    if (!state.ok) return
+    if (resetOnSuccess) ref.current?.reset()
+    onSuccess?.()
+    // The callback is a fresh closure each render; only a new result should
+    // fire it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetOnSuccess, state])
 
   return (

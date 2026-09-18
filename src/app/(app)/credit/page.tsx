@@ -10,6 +10,7 @@ import {
 } from '@/components/ui'
 import { DeleteButton } from '@/components/DeleteButton'
 import { EditableRow } from '@/components/EditableRow'
+import { shiftLabel } from '@/lib/shifts'
 import { EditSlipForm } from './EditSlipForm'
 import { deleteCreditSale } from './actions'
 
@@ -18,6 +19,8 @@ export const dynamic = 'force-dynamic'
 interface Row extends CreditSale {
   customers: { name: string } | null
   fuel_types: { name: string; unit: 'L' | 'kg' } | null
+  /** which half of the day this slip counts toward */
+  shifts: { name: string } | null
 }
 
 export default async function CreditPage({
@@ -32,7 +35,7 @@ export default async function CreditPage({
 
   const { data } = await supabase
     .from('credit_sales')
-    .select('*, customers(name), fuel_types(name, unit)')
+    .select('*, customers(name), fuel_types(name, unit), shifts(name)')
     .eq('business_date', date)
     .order('created_at', { ascending: false })
 
@@ -80,6 +83,7 @@ export default async function CreditPage({
               <tr>
                 <Th>{t('cust.title')}</Th>
                 <Th>{t('credit.vehicle')}</Th>
+                <Th>{t('shift.name')}</Th>
                 <Th>{t('common.fuel')}</Th>
                 <Th className="text-right">{t('common.quantity')}</Th>
                 <Th className="text-right">{t('common.rate')}</Th>
@@ -91,7 +95,7 @@ export default async function CreditPage({
               {rows.map((r) => (
                 <EditableRow
                   key={r.id}
-                  span={6}
+                  span={7}
                   label="Edit slip"
                   cells={<>
                   <Td>
@@ -110,6 +114,13 @@ export default async function CreditPage({
                     {r.driver_name ? (
                       <div className="text-sm text-neutral-600">{r.driver_name}</div>
                     ) : null}
+                  </Td>
+                  <Td>
+                    {r.shifts?.name ? (
+                      <Badge tone="accent">{shiftLabel(t, r.shifts.name)}</Badge>
+                    ) : (
+                      <Badge tone="danger">{t('money.looseUdhaar')}</Badge>
+                    )}
                   </Td>
                   <Td>{r.fuel_types?.name ?? '—'}</Td>
                   <Td className="tabular text-right">
@@ -133,7 +144,7 @@ export default async function CreditPage({
                       />
                     )
                   }
-                  form={<EditSlipForm slip={r} />}
+                  form={<EditSlipForm slip={r} shiftName={r.shifts?.name ?? null} />}
                 />
               ))}
             </tbody>

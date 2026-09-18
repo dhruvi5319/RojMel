@@ -1,19 +1,21 @@
 'use client'
 
 import { useT } from '@/lib/i18n/client'
-import type { CngSupply, CngSupplyCost, FuelType } from '@/lib/database.types'
-import { Alert, Field, Input, NumberInput, Textarea } from '@/components/ui'
+import type { CngSupply, CngSupplyCost, FuelType, Staff } from '@/lib/database.types'
+import { Alert, Field, Input, NumberInput, Select, Textarea } from '@/components/ui'
 import { ActionForm, SubmitButton } from '@/components/ActionForm'
 import { addDispenser, recordSupply } from './actions'
 
 export function SupplyForm({
   today,
   canSeeCost,
+  staff,
   supply,
   cost,
 }: {
   today: string
   canSeeCost: boolean
+  staff: Staff[]
   supply?: CngSupply
   cost?: CngSupplyCost | null
 }) {
@@ -26,6 +28,7 @@ export function SupplyForm({
       onDone={t('counter.done')}
       resetOnSuccess={!editing}
     >
+      <input type="hidden" name="id" value={supply?.id ?? ''} />
       <div className="grid gap-4 sm:grid-cols-4">
         <Field label={t('common.date')} required>
           <Input
@@ -35,26 +38,26 @@ export function SupplyForm({
             defaultValue={supply?.supply_date ?? today}
           />
         </Field>
-        <Field label={t('cng.openingScm')} hint={t('cng.inletHint')}>
-          <NumberInput
-            name="opening_scm"
-            step="0.001"
-            defaultValue={supply?.opening_scm ?? ''}
+        <Field label={t('stock.tanker')}>
+          <Input
+            name="tanker_number"
+            className="uppercase tabular"
+            defaultValue={supply?.tanker_number ?? ''}
           />
         </Field>
-        <Field label={t('cng.closingScm')}>
+        <Field label={t('cng.challanKg')} hint={t('cng.challanKgHint')}>
           <NumberInput
-            name="closing_scm"
+            name="invoice_kg"
             step="0.001"
-            defaultValue={supply?.closing_scm ?? ''}
+            defaultValue={supply?.invoice_kg ?? ''}
           />
         </Field>
-        <Field label={t('cng.scmReceived')} required>
+        <Field label={t('cng.kgReceived')} required hint={t('cng.kgReceivedHint')}>
           <NumberInput
-            name="scm_received"
+            name="kg_received"
             step="0.001"
             required
-            defaultValue={supply?.scm_received ?? ''}
+            defaultValue={supply?.kg_received ?? ''}
           />
         </Field>
       </div>
@@ -66,7 +69,7 @@ export function SupplyForm({
           </div>
           <div className="grid gap-4 sm:grid-cols-4">
             <Field label={t('stock.supplier')}>
-              <Input name="supplier" defaultValue={cost?.supplier ?? 'Gujarat Gas'} />
+              <Input name="supplier" defaultValue={cost?.supplier ?? ''} />
             </Field>
             <Field label={t('inv.number')}>
               <Input
@@ -74,11 +77,11 @@ export function SupplyForm({
                 defaultValue={supply?.invoice_number ?? ''}
               />
             </Field>
-            <Field label={t('cng.ratePerScm')}>
+            <Field label={t('cng.ratePerKg')}>
               <NumberInput
-                name="rate_per_scm"
+                name="rate_per_kg"
                 step="0.001"
-                defaultValue={cost?.rate_per_scm ?? ''}
+                defaultValue={cost?.rate_per_kg ?? ''}
               />
             </Field>
             <Field label={t('stock.vatRate')} hint={t('stock.vatHint')}>
@@ -90,9 +93,21 @@ export function SupplyForm({
         <Alert tone="accent">{t('cng.ownerOnlyGas')}</Alert>
       )}
 
-      <Field label={t('common.notes')}>
-        <Textarea name="notes" rows={2} defaultValue={supply?.notes ?? ''} />
-      </Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Received by" hint={t('common.optional')}>
+          <Select name="received_by" defaultValue={supply?.received_by ?? ''}>
+            <option value="">—</option>
+            {staff.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={t('common.notes')}>
+          <Textarea name="notes" rows={2} defaultValue={supply?.notes ?? ''} />
+        </Field>
+      </div>
 
       <div>
         <SubmitButton size="md">

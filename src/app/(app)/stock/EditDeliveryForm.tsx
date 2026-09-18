@@ -20,6 +20,9 @@ export function EditDeliveryForm({
   return (
     <ActionForm action={updateDelivery} onDone={t('counter.done')}>
       <input type="hidden" name="id" value={delivery.id} />
+      {/* The date, tanker and seals belong to the trip, so editing them here
+          reaches every tank that trip filled. */}
+      <input type="hidden" name="delivery_id" value={delivery.delivery_id} />
       <div className="grid gap-4 sm:grid-cols-3">
         <Field label={t('stock.ordered')}>
           <NumberInput

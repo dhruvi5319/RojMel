@@ -170,7 +170,7 @@ const staff = check(
 
 const shift = check(
   'insert shift',
-  await mgr.from('shifts').insert({ business_date: today, name: 'Morning', sort_order: 1 })
+  await mgr.from('shifts').insert({ business_date: today, name: 'Day', sort_order: 1 })
     .select().single(),
 )
 
@@ -270,25 +270,58 @@ expect('  diesel stock fell by the litres sold', moved('Tank 2 Diesel'), -500)
 /* ---------------------------------------- embedded joins the pages use --- */
 console.log('\n--- embedded selects ---')
 
-check('credit list join', await mgr.from('credit_sales').select('*, customers(name), fuel_types(name)').eq('business_date', today))
+check('credit list join', await mgr.from('credit_sales')
+  .select('*, customers(name), fuel_types(name), shifts(name)').eq('business_date', today))
+
+// A slip belongs to a shift, and the day has the two the pump runs.
+{
+  const shifts = check('ensure_day_shifts', await mgr.rpc('ensure_day_shifts', { p_date: today }))
+  assert(
+    (shifts ?? []).map((s) => s.name).join(',') === 'Day,Night',
+    '  the day and the night shift',
+    `got ${(shifts ?? []).map((s) => s.name).join(',')}`)
+
+  const night = (shifts ?? []).find((s) => s.name === 'Night')
+  const slip = check('a slip written for the night shift',
+    await mgr.from('credit_sales').insert({
+      customer_id: customer.id, business_date: today, shift_id: night.id,
+      fuel_type_id: nozzles[0].fuel_type_id, quantity: 5, sale_rate: 100,
+    }).select('id, shift_id').single())
+  assert(slip?.shift_id === night.id, '  stays on the shift it was tagged to',
+    `got ${slip?.shift_id}`)
+
+  // and the money log counts it against that shift, not the other
+  const money = check('v_shift_money sees it',
+    await mgr.from('v_shift_money').select('*').eq('shift_id', night.id).single())
+  assert(Number(money?.udhaar) >= 500, '  and it reaches that shift\'s udhaar',
+    `udhaar ${money?.udhaar}`)
+
+  // Taken back out: the day's totals below are asserted to the rupee, and
+  // this slip was only ever here to prove which shift carries it.
+  await mgr.from('credit_sales').delete().eq('id', slip.id)
+}
 check('payments list join', await mgr.from('payments').select('*, customers(name), invoices(invoice_number)'))
 check('shifts list join', await mgr.from('shifts').select('*, nozzle_readings(litres, amount), shift_collections(cash_amount, upi_amount, card_amount)').eq('business_date', today))
 check('bank list join', await mgr.from('bank_deposits').select('*, profiles!bank_deposits_deposited_by_fkey(full_name)'))
 check('staff payments join', await mgr.from('staff_payments').select('*, staff(name)'))
-check('stock deliveries join', await mgr.from('fuel_purchases').select('*, tanks(name), staff(name), fuel_purchase_costs(*)'))
+// Who received the tanker is the tanker's fact now, not the tank line's.
+check('stock deliveries join', await mgr.from('fuel_purchases')
+  .select('*, tanks(name), fuel_deliveries(tanker_number, staff(name)), fuel_purchase_costs(*)'))
 
 // purchase_id is both PK and FK, so PostgREST embeds the cost as a single
 // object. Reading it as an array silently hides every purchase rate.
 {
   const owner2 = await signIn('father@test.in')
   const { data: tk } = await owner2.from('tanks').select('id, fuel_type_id').limit(1).single()
+  const { data: trip } = await owner2.from('fuel_deliveries').insert({
+    delivery_date: today, tanker_number: 'SHAPE-TEST' }).select().single()
   const { data: pur } = await owner2.from('fuel_purchases').insert({
-    tank_id: tk.id, fuel_type_id: tk.fuel_type_id, delivery_date: today,
-    tanker_number: 'SHAPE-TEST', litres: 1000 }).select().single()
+    delivery_id: trip.id, tank_id: tk.id, fuel_type_id: tk.fuel_type_id,
+    delivery_date: today, litres: 1000 }).select().single()
   await owner2.from('fuel_purchase_costs').insert({
     purchase_id: pur.id, rate_per_litre: 80, amount: 80000 })
   const { data: joined } = await owner2.from('fuel_purchases')
-    .select('tanker_number, fuel_purchase_costs(amount)').eq('id', pur.id).single()
+    .select('litres, fuel_purchase_costs(amount)').eq('id', pur.id).single()
   assert(
     joined.fuel_purchase_costs && !Array.isArray(joined.fuel_purchase_costs)
       && Number(joined.fuel_purchase_costs.amount) === 80000,
@@ -449,11 +482,16 @@ console.log('\n--- three fuels, four payment modes ---')
   expect('  12 kg at 79.67', cngSlip?.amount, 956.04)
 
   // Gas cost is margin, so it is the owner's alone.
-  const { data: sup } = await own.from('cng_supply').upsert(
-    { supply_date: today, scm_received: 4000 }, { onConflict: 'station_id,supply_date' })
+  // CNG arrives on its own truck, weighed in kilograms — the same unit the
+  // dispensers sell in, so a short delivery is arithmetic, not a conversion.
+  const { data: sup, error: supErr } = await own.from('cng_supply').insert(
+    { supply_date: today, tanker_number: 'GJ18CNG1', invoice_kg: 4000, kg_received: 3990 })
     .select().single()
+  assert(!supErr, 'a CNG truck, in kilograms', supErr?.message ?? '')
+  const { data: supView } = await own.from('v_cng_supply').select('*').eq('id', sup.id).single()
+  expect('  short against the challan', supView?.invoice_variance, -10)
   await own.from('cng_supply_costs').upsert(
-    { supply_id: sup.id, rate_per_scm: 48.5, amount: 194000 }, { onConflict: 'supply_id' })
+    { supply_id: sup.id, rate_per_kg: 48.5, amount: 193515 }, { onConflict: 'supply_id' })
   const { data: mgrGas } = await mgr.from('cng_supply_costs').select('*')
   assert(mgrGas?.length === 0, 'manager sees no gas cost', `saw ${mgrGas?.length}`)
   const { data: ownGas } = await own.from('cng_supply_costs').select('*')
@@ -475,13 +513,32 @@ console.log('\n--- stock every shift, and the tanker paperwork ---')
   assert(!a.error && !b.error, 'a shift dip and a day-end dip coexist',
          a.error?.message ?? b.error?.message ?? '')
 
-  // Ordered · challan · what reached the tank, kept apart.
+  // One tanker from the depot, its compartments not written down — what each
+  // of our tanks took is. Ordered · challan · what reached the tank, kept apart.
+  const { data: visit, error: visitErr } = await own.from('fuel_deliveries').insert({
+    delivery_date: today, tanker_number: 'GJ18TT1234', seal_number: 'SL-1',
+    seals_intact: true, water_check_ok: true }).select().single()
+  assert(!visitErr, 'record the tanker', visitErr?.message ?? '')
+
   const { data: del, error: delErr } = await own.from('fuel_purchases').insert({
-    tank_id: tank.id, fuel_type_id: tank.fuel_type_id, delivery_date: today,
-    tanker_number: 'GJ18TT1234', ordered_litres: 6000, invoice_litres: 6000,
-    tanker_dip_litres: 5980, litres: 5970, seal_number: 'SL-1', seals_intact: true,
-    water_check_ok: true, density: 0.832, temperature_c: 31.5 }).select().single()
+    delivery_id: visit.id, tank_id: tank.id, fuel_type_id: tank.fuel_type_id,
+    delivery_date: today, ordered_litres: 6000, invoice_litres: 6000,
+    tanker_dip_litres: 5980, litres: 5970,
+    density: 0.832, temperature_c: 31.5 }).select().single()
   assert(!delErr, 'record a delivery with its paperwork', delErr?.message ?? '')
+
+  // The second product off the same trip, into the other tank.
+  const { data: other } = await own.from('tanks').select('id, fuel_type_id')
+    .neq('id', tank.id).limit(1).maybeSingle()
+  if (other) {
+    const { error: twoErr } = await own.from('fuel_purchases').insert({
+      delivery_id: visit.id, tank_id: other.id, fuel_type_id: other.fuel_type_id,
+      delivery_date: today, invoice_litres: 4000, litres: 3985 })
+    assert(!twoErr, '  and the other compartment into the other tank', twoErr?.message ?? '')
+    const { data: v } = await own.from('v_tanker_visits').select('*').eq('id', visit.id).single()
+    expect('  one trip, two tanks', v?.tanks_filled, 2)
+    expect('  and both loads add up on it', v?.litres, 5970 + 3985)
+  }
 
   const { data: view } = await own.from('v_deliveries').select('*').eq('id', del.id).single()
   expect('  short against the challan', view.invoice_variance, -30)
