@@ -55,10 +55,19 @@ export default async function TheDay({
   const approved = day?.status === 'approved'
 
   /* ── the day's rhythm ─────────────────────────────────────────────────── */
+  /*
+   * Each step belongs to somebody. The fillers do the day as it happens —
+   * meters, slips, the cash they hand over. The manager checks it and hands it
+   * to the owner. The owner looks it over and closes the day, and only he can.
+   * Owner and manager can both still edit anything; this says whose job it
+   * normally is, so neither of them sits waiting on a step that is not theirs.
+   */
+  const me = isOwner(session) ? 'owner' : 'manager'
   const steps = [
     {
       href: '#rates',
       label: t('rate.today'),
+      who: 'manager' as const,
       detail:
         rates.length === 0
           ? t('rate.noneYet')
@@ -70,18 +79,21 @@ export default async function TheDay({
     {
       href: `/shifts?date=${date}`,
       label: t('shift.readings'),
+      who: 'filler' as const,
       detail: `${litres(day?.litres_sold ?? 0)} · ${money(day?.meter_sales ?? 0)}`,
       done: (day?.litres_sold ?? 0) > 0,
     },
     {
       href: `/credit?date=${date}`,
       label: t('credit.title'),
+      who: 'filler' as const,
       detail: `${slipCount} · ${money(day?.credit_sales ?? 0)}`,
       done: slipCount > 0,
     },
     {
-      href: `/shifts?date=${date}`,
+      href: `/moneylog?date=${date}`,
       label: t('shift.collections'),
+      who: 'filler' as const,
       detail: `${money(day?.collected_total ?? 0)} · ${
         square ? t('dash.allSquare') : t('dash.collectionShort')
       }`,
@@ -90,6 +102,7 @@ export default async function TheDay({
     {
       href: `/day?date=${date}`,
       label: t('day.countedCash'),
+      who: 'manager' as const,
       detail:
         day?.counted_cash != null
           ? `${money(day.counted_cash)} · ${t('day.difference')} ${money(cashDiff)}`
@@ -99,6 +112,7 @@ export default async function TheDay({
     {
       href: `/day?date=${date}`,
       label: t('day.approve'),
+      who: 'owner' as const,
       detail: approved ? t('day.approved') : t('dash.pendingApproval'),
       done: approved,
     },
@@ -180,6 +194,9 @@ export default async function TheDay({
               <Kicker>
                 {t('dash.rhythm')} · {doneCount} of {steps.length}
               </Kicker>
+              <p className="mt-2 max-w-prose text-[12.5px] text-neutral-600">
+                {isOwner(session) ? t('dash.ownerCloses') : t('dash.managerVerifies')}
+              </p>
             </div>
 
             <div className="flex flex-col gap-2">
@@ -205,6 +222,23 @@ export default async function TheDay({
                     <span className="tabular block text-[12px] text-neutral-600">
                       {step.detail}
                     </span>
+                  </span>
+                  {/* Whose job it normally is, so neither the manager nor the
+                      owner sits waiting on a step that is not theirs. */}
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${
+                      step.who === me
+                        ? 'bg-accent text-bg'
+                        : 'bg-neutral-200 text-neutral-600'
+                    }`}
+                  >
+                    {step.who === me
+                      ? t('dash.yoursToDo')
+                      : step.who === 'filler'
+                        ? t('role.filler')
+                        : step.who === 'owner'
+                          ? t('role.owner')
+                          : t('role.manager')}
                   </span>
                 </Link>
               ))}
@@ -297,23 +331,44 @@ export default async function TheDay({
             )}
           </div>
 
+          {/* The four things this person actually reaches for. The manager is
+              working the day; the owner is reviewing it, and offering him
+              "enter a meter reading" first is offering him somebody else's
+              job. Both can still reach everything through the tabs. */}
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <QuickAction href={`/shifts?date=${date}`} icon={Fuel} label={t('shift.readings')} />
-            <QuickAction href={`/credit/new?date=${date}`} icon={Truck} label={t('credit.new')} />
-            <QuickAction href="/payments/new" icon={Receipt} label={t('pay.new')} />
-            <QuickAction href="/bank" icon={Banknote} label={t('bank.new')} />
+            {isOwner(session) ? (
+              <>
+                <QuickAction href={`/moneylog?date=${date}`} icon={Receipt} label={t('nav.money')} />
+                <QuickAction href={`/day?date=${date}`} icon={CircleCheckBig} label={t('nav.day')} />
+                <QuickAction href="/reports" icon={Banknote} label={t('nav.reports')} />
+                <QuickAction href="/daybook" icon={Fuel} label={t('nav.daybook')} />
+              </>
+            ) : (
+              <>
+                <QuickAction href={`/moneylog?date=${date}`} icon={Receipt} label={t('nav.money')} />
+                <QuickAction href={`/credit/new?date=${date}`} icon={Truck} label={t('credit.new')} />
+                <QuickAction href={`/shifts?date=${date}`} icon={Fuel} label={t('shift.readings')} />
+                <QuickAction href="/bank" icon={Banknote} label={t('bank.new')} />
+              </>
+            )}
           </div>
 
-          {isOwner(session) && !approved && day?.status === 'submitted' ? (
+          {!approved && day?.status === 'submitted' ? (
             <div className="mt-5">
               <Alert tone="accent">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="font-semibold">{t('dash.pendingApproval')}</span>
+                  <span className="font-semibold">
+                    {isOwner(session) ? t('dash.readyForOwner') : t('dash.pendingApproval')}
+                  </span>
                   <Link href={`/day?date=${date}`} className="font-semibold underline">
                     {t('nav.day')} →
                   </Link>
                 </div>
               </Alert>
+            </div>
+          ) : isOwner(session) && !approved ? (
+            <div className="mt-5">
+              <Alert tone="accent">{t('dash.dayWithManager')}</Alert>
             </div>
           ) : null}
         </div>

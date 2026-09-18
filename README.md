@@ -45,6 +45,12 @@ plain arithmetic: what the trucks brought, less what was sold. There is no tank
 to dip. Its opening and closing readings are entered with the shift, beside the
 nozzles, so the day still tallies as one day.
 
+The work divides the way it does at the pump. The **fillers** do the day as it
+happens; the **manager** checks it and hands it over; the **owner** looks it
+over and closes the day, which only he can do. Today's rhythm tags each step
+with whose job it is, so neither the manager nor the owner is presented with
+somebody else's work as if it were theirs — though both can edit anything.
+
 A filler starts and finishes their own shift on the counter device, because
 they are the one who hands the money over. Their figures stay theirs to correct
 until an owner or manager presses **Agree these figures** on the shift — after

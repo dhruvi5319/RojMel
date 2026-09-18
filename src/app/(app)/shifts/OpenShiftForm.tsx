@@ -31,7 +31,7 @@ export function OpenShiftForm({ date, taken }: { date: string; taken: string[] }
 
   return (
     <Card>
-      <CardHeader title={t('shift.new')} />
+      <CardHeader title={t('shift.new')} subtitle={t('shift.fillerStarts')} />
       <div className="flex flex-col gap-3 p-4">
         <div className="flex flex-wrap gap-2">
           {available.map((s) => (

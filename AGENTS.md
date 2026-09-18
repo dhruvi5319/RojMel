@@ -57,6 +57,15 @@ status, not `open`. `approve_shift()` is the office's act and the line: past it
 only an owner or manager can reopen. Approving is a shift, not a day — the day
 lock in `day_closings` is separate and still applies on top.
 
+**Whose job is whose.** The fillers do the day as it happens — meters, slips,
+the cash they hand over, and starting and finishing their own shift. The
+manager checks it and hands it to the owner. The owner looks it over and
+closes the day, and `approve_day()` refuses anyone else. Owner and manager can
+both still edit anything; the split is about what each is *shown* first, so
+neither sits waiting on a step that is not theirs. Today's rhythm tags each
+step with whose it is, and the quick actions differ by role. Do not implement
+this by hiding pages — every back-office page stays reachable through the tabs.
+
 **Two shifts: day and night.** `src/lib/shifts.ts` names them once, and the
 shift opener, the counter device and every slip form offer the same two — a
 third name typed on one screen would be a shift the money log could never

@@ -318,6 +318,44 @@ await check('a saved form closes itself', async () => {
   await page.waitForTimeout(2500)
 })
 
+// Each role is shown its own job first. The fillers do the day as it happens,
+// the manager checks it, the owner closes it — and nobody should be presented
+// with somebody else's step as if it were theirs.
+await check('today: the manager is shown her own job', async () => {
+  await page.goto(`${BASE}/`, { waitUntil: 'load' })
+  const t = await body()
+  if (!t.includes('Your job is to check the day and hand it to the owner')) {
+    throw new Error('the manager is not told what her part is')
+  }
+  const tags = await page.$$eval('a span', (els) =>
+    els.map((e) => e.textContent.trim()).filter((x) => ['Yours', 'Filler', 'Owner', 'Manager'].includes(x)))
+  if (!tags.includes('Filler')) throw new Error('no step is marked as the filler\'s')
+  if (!tags.includes('Owner')) throw new Error('closing the day is not marked as the owner\'s')
+  if (!tags.includes('Yours')) throw new Error("none of the manager's own steps are marked")
+
+  // and the day is the owner's to close, whoever is looking
+  await page.goto(`${BASE}/day`, { waitUntil: 'load' })
+  const d = await body()
+  if (!d.includes('Only the owner closes the day')) {
+    throw new Error('the day page does not say whose act closing is')
+  }
+  if ((await page.locator('button', { hasText: 'Approve day' }).count()) !== 0) {
+    throw new Error('a manager was offered the owner\'s approval')
+  }
+})
+
+await checkAsOwner('today: the owner is shown the review, not the doing', async () => {
+  await page.goto(`${BASE}/`, { waitUntil: 'load' })
+  const t = await body()
+  if (!t.includes('Only you close the day, once you have looked it over')) {
+    throw new Error('the owner is not told what his part is')
+  }
+  const tags = await page.$$eval('a span', (els) =>
+    els.map((e) => e.textContent.trim()).filter((x) => ['Yours', 'Filler', 'Owner', 'Manager'].includes(x)))
+  if (!tags.includes('Manager')) throw new Error("the manager's steps are not marked for the owner")
+  if (!tags.includes('Yours')) throw new Error("the owner's own step is not marked")
+})
+
 console.log('\n=== STOCK ===')
 // One trip from the depot, decanted into two of our tanks. The tanker is
 // entered once; the compartments are never written down.

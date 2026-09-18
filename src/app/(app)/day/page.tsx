@@ -147,7 +147,7 @@ export default async function DayPage({
       <div className="no-print mt-5 grid gap-4 lg:grid-cols-2">
         {!approved ? (
           <Card>
-            <CardHeader title={t('day.submit')} />
+            <CardHeader title={t('day.submit')} subtitle={t('day.submitWho')} />
             <div className="p-5">
               <SubmitDayForm
                 date={date}
@@ -163,10 +163,21 @@ export default async function DayPage({
           <Card>
             <CardHeader
               title={approved ? t('day.reopen') : t('day.approve')}
-              subtitle={approved ? t('day.locked') : undefined}
+              subtitle={approved ? t('day.locked') : t('day.approveWho')}
             />
             <div className="p-5">
               {approved ? <ReopenDayForm date={date} /> : <ApproveDayForm date={date} />}
+            </div>
+          </Card>
+        ) : status === 'submitted' ? (
+          /* The manager has handed it over; closing it is not hers to do. */
+          <Card>
+            <div className="flex items-center gap-3 p-5">
+              <Lock className="size-5 text-neutral-600" aria-hidden />
+              <div>
+                <div className="font-medium">{t('day.withOwnerNow')}</div>
+                <p className="mt-1 text-sm text-neutral-600">{t('day.approveWho')}</p>
+              </div>
             </div>
           </Card>
         ) : approved ? (
