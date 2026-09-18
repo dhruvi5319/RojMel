@@ -218,6 +218,48 @@ Nobody can sign themselves up, at any point.
 3. **Customers** — add each transport company, and put what they *already owe*
    in **Opening balance**, so the app starts from where the book left off.
 
+## Signing in
+
+Five kinds of login, and **fillers do not have one**.
+
+| Who | Signs in as | Lands on |
+| --- | --- | --- |
+| Super admin | their own email, in `platform_admins` | `/admin` — makes pumps, sees nothing inside one |
+| Owner | their own email | the pump, everything |
+| Manager | their own email | the pump, all but the six owner-only things |
+| Counter device | one shared login per pump | `/counter`, and cannot leave it |
+| Filler | — | taps their name on the counter device |
+
+The counter device is a login *for the device*, not for a person: sign it in
+once on the phone or tablet at the nozzle and leave it signed in. Whoever is on
+duty taps their own name on the "Who is on duty?" screen, and everything they
+write — meter readings, udhaar slips, their cash, opening and closing their
+shift — is recorded against that name. Give a filler a 4-digit PIN under
+**Staff** if you want the name to be confirmed before it is used; without one it
+is a single tap, which is usually what you want with a queue at the pump.
+
+A counter login cannot reach the office pages at all. Type `/moneylog` into the
+device and it goes straight back to the counter screen, so there is nothing to
+find by poking around.
+
+Passwords: the super admin sets the owner's first one, the owner sets everyone
+else's, and **everyone changes their own under More → My login**. Nobody can
+sign themselves up.
+
+### The seeded logins, for local development
+
+`supabase/setup/create_pump.sql` and the test suites use one password for all of
+them — **`pumpbook123`**. It is a development convenience and has no business in
+a real pump.
+
+| Email | Role |
+| --- | --- |
+| `super@test.in` | super admin (no pump) |
+| `father@test.in` | owner |
+| `brother@test.in` | owner |
+| `manager@test.in` | manager |
+| `counter@test.in` | counter device |
+
 ## The daily rhythm
 
 - **During the day** — the counter device records meter readings per shift and
