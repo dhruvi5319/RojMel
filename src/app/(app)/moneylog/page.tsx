@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { CircleCheckBig, TriangleAlert } from 'lucide-react'
 import { requireBackOffice } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
@@ -5,8 +6,10 @@ import { getLang, getT } from '@/lib/i18n/server'
 import { formatDateLong, money, quantity, todayIST } from '@/lib/format'
 import type { ShiftFuelSale, ShiftMoney } from '@/lib/database.types'
 import {
-  Alert, Badge, Card, CardHeader, Empty, Kicker, PageHeader, TableWrap, Td, Th,
+  Alert, Badge, Card, CardHeader, Empty, Kicker, LinkButton, PageHeader,
+  TableWrap, Td, Th,
 } from '@/components/ui'
+import { MoneyForm } from './MoneyForm'
 import { VarianceForm } from './VarianceForm'
 
 export const dynamic = 'force-dynamic'
@@ -30,16 +33,34 @@ export default async function MoneyLogPage({
   const supabase = await createClient()
   const date = (await searchParams).date || todayIST()
 
-  const [moneyRes, fuelRes] = await Promise.all([
+  const [moneyRes, fuelRes, byFillerRes, loose] = await Promise.all([
     supabase.from('v_shift_money').select('*').eq('business_date', date).order('sort_order'),
     supabase
       .from('v_shift_fuel_sales')
       .select('*')
       .eq('business_date', date)
       .order('sort_order'),
+    // Whatever named fillers handed over on the shift screen; the money log
+    // writes the shift's own row and must not claim theirs.
+    supabase
+      .from('shift_collections')
+      .select('shift_id, staff_id, cash_amount, card_amount, upi_amount, bpcl_amount')
+      .not('staff_id', 'is', null),
+    supabase
+      .from('v_unattached_udhaar')
+      .select('*')
+      .eq('business_date', date)
+      .maybeSingle<{ slips: number; amount: number }>(),
   ])
 
   const shifts = (moneyRes.data ?? []) as ShiftMoney[]
+  const fillerRows = (byFillerRes.data ?? []) as {
+    shift_id: string
+    cash_amount: number
+    card_amount: number
+    upi_amount: number
+    bpcl_amount: number
+  }[]
   const fuels = (fuelRes.data ?? []) as ShiftFuelSale[]
 
   const fuelName = (f: ShiftFuelSale) =>
@@ -66,14 +87,58 @@ export default async function MoneyLogPage({
         {t('money.subtitle')}
       </p>
 
+      {loose.data ? (
+        <div className="mb-5">
+          <Alert tone="danger">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>
+                <strong>{t('money.looseUdhaar')}</strong> — {loose.data.slips}{' '}
+                {t('credit.title').toLowerCase()},{' '}
+                <span className="tabular">{money(loose.data.amount)}</span>.{' '}
+                {t('money.looseUdhaarWhy')}
+              </span>
+              <Link href={`/credit?date=${date}`} className="font-semibold underline">
+                {t('credit.title')} →
+              </Link>
+            </div>
+          </Alert>
+        </div>
+      ) : null}
+
       {shifts.length === 0 ? (
         <Card>
-          <Empty>{t('money.noShifts')}</Empty>
+          <Empty>
+            {t('money.noShifts')}
+            <div className="mt-3">
+              <LinkButton href={`/shifts?date=${date}`} size="sm">
+                {t('shift.new')}
+              </LinkButton>
+            </div>
+          </Empty>
         </Card>
       ) : (
         <div className="flex flex-col gap-5">
           {shifts.map((s) => {
             const mine = fuels.filter((f) => f.shift_id === s.shift_id)
+            const byFiller = fillerRows
+              .filter((r) => r.shift_id === s.shift_id)
+              .reduce(
+                (a, r) =>
+                  a + Number(r.cash_amount) + Number(r.card_amount) +
+                  Number(r.upi_amount) + Number(r.bpcl_amount),
+                0,
+              )
+            // what the money log itself is responsible for
+            const own = {
+              cash: Number(s.cash) - fillerRows.filter((r) => r.shift_id === s.shift_id)
+                .reduce((a, r) => a + Number(r.cash_amount), 0),
+              card: Number(s.card) - fillerRows.filter((r) => r.shift_id === s.shift_id)
+                .reduce((a, r) => a + Number(r.card_amount), 0),
+              upi: Number(s.upi) - fillerRows.filter((r) => r.shift_id === s.shift_id)
+                .reduce((a, r) => a + Number(r.upi_amount), 0),
+              bpcl: Number(s.bpcl) - fillerRows.filter((r) => r.shift_id === s.shift_id)
+                .reduce((a, r) => a + Number(r.bpcl_amount), 0),
+            }
             const diff = Number(s.difference)
             const settled = Math.abs(diff) < 0.5
             const recorded = s.variance_amount != null
@@ -198,6 +263,26 @@ export default async function MoneyLogPage({
                       </TableWrap>
                     </div>
                   </div>
+                </div>
+
+                {/* ────────────────────────────── writing the money in ──── */}
+                <div className="border-t border-divider p-5">
+                  <div className="mb-3 flex flex-wrap items-baseline gap-2">
+                    <Kicker>{t('money.enterMoney')}</Kicker>
+                    <span className="text-[12px] text-neutral-600">
+                      {t('money.udhaarFromSlips')}
+                    </span>
+                  </div>
+                  <MoneyForm
+                    shiftId={s.shift_id}
+                    cash={own.cash}
+                    card={own.card}
+                    upi={own.upi}
+                    bpcl={own.bpcl}
+                    udhaar={Number(s.udhaar)}
+                    sold={Number(s.total_sale)}
+                    byFiller={byFiller}
+                  />
                 </div>
 
                 {/* ───────────────────────── the difference, written down ── */}

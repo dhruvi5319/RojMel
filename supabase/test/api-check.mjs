@@ -210,13 +210,28 @@ check(
   (d) => (Math.abs(Number(d.amount) - 26760) > 0.01 ? `expected 26760, got ${d.amount}` : null),
 )
 
+// A filler is answerable for the notes in their pocket and nothing else: the
+// card machine and the UPI account are the pump's, so their takings go on the
+// shift's own row, the one with no filler against it.
 check(
-  'upsert handover',
+  'upsert handover: the filler hands over cash',
   await mgr.from('shift_collections').upsert(
-    { shift_id: shift.id, staff_id: staff.id, cash_amount: 30000, upi_amount: 6947 },
+    { shift_id: shift.id, staff_id: staff.id, cash_amount: 30000 },
     { onConflict: 'shift_id,staff_id' },
   ).select(),
 )
+check(
+  'upsert the shift\'s own takings',
+  await mgr.from('shift_collections').upsert(
+    { shift_id: shift.id, staff_id: null, upi_amount: 6947 },
+    { onConflict: 'shift_id,staff_id' },
+  ).select(),
+)
+assert(
+  (await mgr.from('shift_collections').upsert(
+    { shift_id: shift.id, staff_id: staff.id, cash_amount: 30000, upi_amount: 1 },
+    { onConflict: 'shift_id,staff_id' })).error != null,
+  '  and cannot be handed UPI to answer for')
 
 check('insert expense',
   await mgr.from('expenses').insert({ business_date: today, category: 'Repairs', amount: 500, mode: 'cash' }).select())
@@ -285,6 +300,19 @@ check('stock deliveries join', await mgr.from('fuel_purchases').select('*, tanks
 check('invoice slips join', await mgr.from('credit_sales').select('*, fuel_types(name), vehicles(vehicle_number)').limit(5))
 check('settings nozzles join', await mgr.from('nozzles').select('*, tanks(name), fuel_types(name)'))
 check('settings prices join', await mgr.from('fuel_prices').select('*, fuel_types(name)'))
+
+// The rate history page asks who set each price, and no screen passes it —
+// the column defaults to auth.uid(), so a new screen cannot lose the name.
+{
+  const priced = check('rate records who set it',
+    await mgr.from('fuel_prices')
+      .insert({ fuel_type_id: nozzles[0].fuel_type_id, sale_rate: 101.11 })
+      .select('created_by, profiles(full_name)'))
+  assert(priced?.[0]?.created_by != null,
+    '  and it is the manager who saved it',
+    `created_by ${priced?.[0]?.created_by}`,
+    priced?.[0]?.profiles?.full_name ?? '')
+}
 check('day closing approver join', await mgr.from('day_closings').select('*, approver:profiles!day_closings_approved_by_fkey(full_name)'))
 
 /* ------------------------------------------------------------ invoicing -- */
@@ -384,10 +412,10 @@ console.log('\n--- three fuels, four payment modes ---')
 
   // The BPCL card is a fourth collection mode, not udhaar.
   const { error: collErr } = await mgr.from('shift_collections').upsert(
-    { shift_id: shift.id, staff_id: staff.id,
-      cash_amount: 30000, upi_amount: 6947, card_amount: 0, bpcl_amount: 7967 },
+    { shift_id: shift.id, staff_id: null,
+      upi_amount: 6947, card_amount: 0, bpcl_amount: 7967 },
     { onConflict: 'shift_id,staff_id' })
-  assert(!collErr, 'record a BPCL card handover', collErr?.message ?? '')
+  assert(!collErr, 'record a BPCL card on the shift', collErr?.message ?? '')
 
   const d = check('day_summary with CNG and BPCL', await mgr.rpc('day_summary', { p_date: today }))
   expect('  meter sales include CNG', d.meter_sales, 63707 + 7967)

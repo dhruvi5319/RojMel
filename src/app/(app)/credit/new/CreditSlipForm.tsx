@@ -207,8 +207,11 @@ export function CreditSlipForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Field label={t('shift.name')} hint={t('common.optional')}>
-          <Select name="shift_id">
+        <Field label={t('shift.name')} hint={t('credit.shiftHint')}>
+          <Select
+            name="shift_id"
+            defaultValue={shifts.find((s) => s.status === 'open')?.id ?? ''}
+          >
             <option value="">—</option>
             {shifts.map((s) => (
               <option key={s.id} value={s.id}>

@@ -4,7 +4,7 @@ import { useT } from '@/lib/i18n/client'
 import type { FuelType, Station, Tank } from '@/lib/database.types'
 import { Field, Input, NumberInput, Select, Textarea } from '@/components/ui'
 import { ActionForm, SubmitButton } from '@/components/ActionForm'
-import { addFuelType, addNozzle, addTank, setRate, updateStation } from './actions'
+import { addFuelType, addNozzle, addTank, updateStation } from './actions'
 
 export function StationForm({ station }: { station: Station }) {
   const t = useT()
@@ -73,34 +73,6 @@ export function FuelForm() {
       </div>
       <div>
         <SubmitButton size="md">{t('common.add')}</SubmitButton>
-      </div>
-    </ActionForm>
-  )
-}
-
-export function RateForm({ fuels }: { fuels: FuelType[] }) {
-  const t = useT()
-  return (
-    <ActionForm action={setRate} onDone={t('counter.done')} resetOnSuccess>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Field label={t('set.fuels')} required>
-          <Select name="fuel_type_id" required>
-            {fuels.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label={t('set.currentRate')} required>
-          <NumberInput name="sale_rate" step="0.001" required />
-        </Field>
-        <Field label={t('set.effectiveFrom')} hint="Blank means right now">
-          <Input name="effective_from" type="datetime-local" />
-        </Field>
-      </div>
-      <div>
-        <SubmitButton size="md">{t('set.newRate')}</SubmitButton>
       </div>
     </ActionForm>
   )

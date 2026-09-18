@@ -40,13 +40,12 @@ interface GasRow {
   staff_id: string
 }
 
+/** A filler hands over notes. UPI, ATM and BPCL settle into the pump's one
+ *  account, so they are the shift's business, not this person's. */
 interface Handover {
   staff_id: string
   name: string
   cash: string
-  card: string
-  upi: string
-  bpcl: string
 }
 
 const n = (v: string) => (v.trim() === '' ? 0 : Number(v))
@@ -118,9 +117,6 @@ export function ShiftEntry({
         staff_id: s.id,
         name: s.name,
         cash: existing ? String(existing.cash_amount) : '',
-        card: existing ? String(existing.card_amount) : '',
-        upi: existing ? String(existing.upi_amount) : '',
-        bpcl: existing ? String(existing.bpcl_amount) : '',
       }
     }),
   )
@@ -144,10 +140,9 @@ export function ShiftEntry({
       kg += k
       amount += k * n(g.rate)
     }
-    const collected = handover.reduce(
-      (sum, h) => sum + n(h.cash) + n(h.card) + n(h.upi) + n(h.bpcl),
-      0,
-    )
+    // Only the notes the fillers handed over; the rest of the shift's money
+    // is entered on the money log.
+    const collected = handover.reduce((sum, h) => sum + n(h.cash), 0)
     const expected = amount - creditTotal
     return { litres, kg, amount, collected, expected, diff: expected - collected }
   }, [rows, gas, handover, creditTotal])
@@ -195,9 +190,6 @@ export function ShiftEntry({
     const payloadCollections: CollectionInput[] = handover.map((h) => ({
       staff_id: h.staff_id,
       cash_amount: n(h.cash),
-      card_amount: n(h.card),
-      upi_amount: n(h.upi),
-      bpcl_amount: n(h.bpcl),
     }))
 
     const payloadCng: CngReadingInput[] = gas.map((g) => ({
@@ -396,50 +388,36 @@ export function ShiftEntry({
       {/* ------------------------------------------------------ handover -- */}
       <Card role="group" aria-label="Handover">
         <CardHeader
-          title={t('shift.collections')}
-          subtitle={`${t('dash.cashExpected')}: ${money(totals.expected)}`}
+          title={t('shift.cashFromFillers')}
+          subtitle={t('shift.cashOnlyHint')}
+          action={
+            <Link
+              href={`/moneylog?date=${shift.business_date}`}
+              className="text-[12.5px] font-semibold whitespace-nowrap text-accent hover:underline"
+            >
+              {t('nav.money')} →
+            </Link>
+          }
         />
         {staff.length === 0 ? (
           <div className="p-4 text-neutral-600">{t('common.none')}</div>
         ) : (
           <div className="flex flex-col divide-y divide-divider">
             {handover.map((h, i) => (
-              <div key={h.staff_id} className="p-4">
-                <div className="mb-2.5 font-semibold">{h.name}</div>
-                {/* cash · ATM · UPI · BPCL card — the four ways money arrives */}
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <Field label={t('mode.cash')}>
-                    <NumberInput
-                      step="0.01"
-                      value={h.cash}
-                      disabled={locked}
-                      onChange={(e) => setHand(i, { cash: e.target.value })}
-                    />
-                  </Field>
-                  <Field label={t('mode.card')}>
-                    <NumberInput
-                      step="0.01"
-                      value={h.card}
-                      disabled={locked}
-                      onChange={(e) => setHand(i, { card: e.target.value })}
-                    />
-                  </Field>
-                  <Field label={t('mode.upi')}>
-                    <NumberInput
-                      step="0.01"
-                      value={h.upi}
-                      disabled={locked}
-                      onChange={(e) => setHand(i, { upi: e.target.value })}
-                    />
-                  </Field>
-                  <Field label={t('mode.bpcl_card')}>
-                    <NumberInput
-                      step="0.01"
-                      value={h.bpcl}
-                      disabled={locked}
-                      onChange={(e) => setHand(i, { bpcl: e.target.value })}
-                    />
-                  </Field>
+              <div
+                key={h.staff_id}
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+              >
+                <span className="font-semibold">{h.name}</span>
+                <div className="w-40">
+                  <NumberInput
+                    step="0.01"
+                    value={h.cash}
+                    disabled={locked}
+                    aria-label={`${t('mode.cash')} — ${h.name}`}
+                    placeholder="0.00"
+                    onChange={(e) => setHand(i, { cash: e.target.value })}
+                  />
                 </div>
               </div>
             ))}
@@ -461,7 +439,7 @@ export function ShiftEntry({
           hint={t('nav.credit')}
         />
         <Stat
-          label={t('shift.collections')}
+          label={t('shift.cashFromFillers')}
           value={money(totals.collected)}
           hint={
             Math.abs(totals.diff) < 0.5

@@ -425,9 +425,10 @@ select assert_eq((select variance_note from shifts
                    where id = '11111111-0000-0000-0000-0000000000c1'),
                  'Counted with Ramesh', 'along with what was said about it');
 
--- Take 500 out of the cash and the shift must show it short by exactly that.
+-- Take 500 out of the filler's cash and the shift must show it short by that.
 update shift_collections set cash_amount = cash_amount - 500
- where shift_id = '11111111-0000-0000-0000-0000000000c1';
+ where shift_id = '11111111-0000-0000-0000-0000000000c1'
+   and staff_id is not null;
 select assert_eq((select difference from v_shift_money
                    where shift_id = '11111111-0000-0000-0000-0000000000c1'),
                  500.00::numeric, 'short cash shows as a shift difference');
@@ -453,6 +454,75 @@ select assert_eq((select count(*) from day_book_month(current_date)), 1::bigint,
                  'a month lists only the days that traded');
 select assert_eq((select count(*) from day_book_month((current_date - interval '2 months')::date)),
                  0::bigint, 'a month with no trading is empty, not an error');
+rollback;
+
+
+-- ------------------------------ the shift's own takings, with no filler named --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+-- The shift's own row sits beside the filler's, and both count.
+select assert_eq((select count(*) from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'),
+                 2::bigint, 'a shift row sits beside the filler row');
+update shift_collections set cash_amount = 1000
+ where shift_id = '11111111-0000-0000-0000-0000000000c1' and staff_id is null;
+select assert_eq((select cash from v_shift_money
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'),
+                 31000.00::numeric, 'and both count toward the shift');
+
+-- but only ever one unattributed row
+select assert_raises($$
+  insert into shift_collections (shift_id, staff_id, cash_amount)
+  values ('11111111-0000-0000-0000-0000000000c1', null, 999) $$,
+  'a second shift-level row');
+
+-- Cash is the filler's; the account-settled modes are the shift's.
+select assert_raises($$
+  update shift_collections set upi_amount = 100
+   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+     and staff_id is not null $$,
+  'UPI recorded against a filler');
+select assert_raises($$
+  insert into shift_collections (shift_id, staff_id, cash_amount, bpcl_amount)
+  values ('11111111-0000-0000-0000-0000000000c1',
+          '11111111-0000-0000-0000-00000000000f', 10, 20) $$,
+  'a BPCL card recorded against a filler');
+select assert_eq((select upi from v_shift_money
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'),
+                 6947.00::numeric, 'the shift still carries the UPI');
+rollback;
+
+
+-- ---------------------------------- a slip belongs to the shift it was written in --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+-- Written with no shift named, while the morning shift stands open.
+insert into credit_sales (business_date, customer_id, fuel_type_id, quantity, sale_rate, slip_number)
+  values (current_date, 'c1111111-0000-0000-0000-000000000001',
+          'f1111111-0000-0000-0000-000000000002', 10, 89.200, 'AUTO-1');
+select assert_eq((select shift_id from credit_sales where slip_number = 'AUTO-1'),
+                 '11111111-0000-0000-0000-0000000000c1'::uuid,
+                 'a slip attaches itself to the open shift');
+
+-- and so it reaches that shift's udhaar
+select assert_eq((select udhaar from v_shift_money
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'),
+                 27652.00::numeric, 'and counts toward that shift');
+
+-- A shift that is closed does not collect slips written afterwards.
+update shifts set status = 'submitted' where id = '11111111-0000-0000-0000-0000000000c1';
+insert into credit_sales (business_date, customer_id, fuel_type_id, quantity, sale_rate, slip_number)
+  values (current_date, 'c1111111-0000-0000-0000-000000000001',
+          'f1111111-0000-0000-0000-000000000002', 5, 89.200, 'AUTO-2');
+select assert_eq((select shift_id from credit_sales where slip_number = 'AUTO-2'),
+                 null::uuid, 'no open shift, so it waits to be attached');
+select assert_eq((select amount from v_unattached_udhaar
+                   where business_date = current_date),
+                 446.00::numeric, 'and shows as udhaar belonging to no shift');
 rollback;
 
 \echo ''

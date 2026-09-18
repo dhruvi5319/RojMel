@@ -10,8 +10,9 @@ import {
 } from '@/components/ui'
 import { Collapsible } from '@/components/Collapsible'
 import { LanguageSeg } from '@/components/AppNav'
+import Link from 'next/link'
 import {
-  FuelForm, NozzleForm, RateForm, StationForm, TankForm,
+  FuelForm, NozzleForm, StationForm, TankForm,
 } from './SettingsForms'
 import { NozzleToggle } from './NozzleToggle'
 import { EditableRow } from '@/components/EditableRow'
@@ -93,7 +94,15 @@ export default async function SettingsPage() {
       <Card className="mb-5">
         <CardHeader
           title={t('set.fuels')}
-          subtitle="Changing a rate adds a new one; older slips keep their old price"
+          subtitle={t('set.fuelsAreEquipment')}
+          action={
+            <Link
+              href="/rates"
+              className="text-[12.5px] font-semibold whitespace-nowrap text-accent hover:underline"
+            >
+              {t('rate.today')} →
+            </Link>
+          }
         />
         {fuels.length === 0 ? (
           <Empty>{t('common.none')}</Empty>
@@ -156,16 +165,13 @@ export default async function SettingsPage() {
           </TableWrap>
         )}
         <div className="flex flex-col gap-3 border-t border-divider p-4">
-          {fuels.length > 0 ? (
-            <Collapsible title={t('set.newRate')} defaultOpen>
-              <RateForm fuels={fuels} />
-            </Collapsible>
-          ) : null}
           {owner ? (
             <Collapsible title={`${t('common.add')} — ${t('set.fuels')}`}>
               <FuelForm />
             </Collapsible>
-          ) : null}
+          ) : (
+            <Alert tone="accent">{t('set.equipmentOwnerOnly')}</Alert>
+          )}
         </div>
       </Card>
 

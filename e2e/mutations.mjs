@@ -12,6 +12,8 @@ const pageErrors = []
 
 const browser = await chromium.launch()
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } })
+ctx.setDefaultNavigationTimeout(60000)
+ctx.setDefaultTimeout(45000)
 const page = await ctx.newPage()
 page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 page.on('response', (r) => {
@@ -59,7 +61,7 @@ async function login(email) {
   await page.fill('input[type=email]', email)
   await page.fill('input[type=password]', 'pumpbook123')
   await page.click('button[type=submit]')
-  await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 20000 })
+  await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 60000 })
 }
 
 /** Pick the first <option> whose text contains `text`. */
@@ -408,7 +410,7 @@ await check('shifts: save meter readings', async () => {
   if (Number(val) !== 9999) throw new Error(`closing reading did not persist, got "${val}"`)
 })
 
-await check('shifts: CNG in kilograms, and a BPCL handover', async () => {
+await check('shifts: CNG in kilograms, and cash from a filler', async () => {
   await page.goto(`${BASE}/shifts`)
   await page.locator('a', { hasText: 'Meter readings' }).first().click()
   await page.waitForURL(/\/shifts\/[0-9a-f-]{36}/, { timeout: 15000 })
@@ -423,10 +425,17 @@ await check('shifts: CNG in kilograms, and a BPCL handover', async () => {
   await page.waitForTimeout(400)
   if (!(await body()).includes('100.00 kg')) throw new Error('kilograms not computed')
 
-  // the fourth collection column
-  const bpcl = page.locator('[aria-label="Handover"] label', { hasText: 'BPCL card' }).first()
-  if ((await bpcl.count()) === 0) throw new Error('no BPCL card field in the handover')
-  await bpcl.locator('input[type=number]').fill('7967')
+  // A filler hands over cash and nothing else; the rest is the money log's.
+  const handover = page.locator('[aria-label="Handover"]')
+  if ((await handover.locator('input[type=number]').count()) === 0) {
+    throw new Error('no cash box for the filler')
+  }
+  const askedFor = await handover.locator('input[type=number]').evaluateAll(
+    (els) => els.map((e) => e.getAttribute('aria-label') ?? e.getAttribute('name') ?? ''))
+  if (askedFor.some((l) => /UPI|BPCL|ATM/i.test(l))) {
+    throw new Error(`a filler was asked for ${askedFor.join(', ')}`)
+  }
+  await handover.locator('input[type=number]').first().fill('7967')
 
   await page.locator('button', { hasText: /^Save$/ }).first().click()
   await page.waitForTimeout(3500)
@@ -434,7 +443,7 @@ await check('shifts: CNG in kilograms, and a BPCL handover', async () => {
   await page.waitForLoadState('networkidle')
   const t2 = await body()
   if (!t2.includes('100.00 kg')) throw new Error('CNG reading did not persist')
-  if (!t2.includes('7,967')) throw new Error('BPCL handover did not persist')
+  if (!t2.includes('7,967')) throw new Error("the filler's cash did not persist")
 })
 
 await check('day close: CNG and BPCL both show', async () => {
@@ -459,6 +468,22 @@ await check('money log: sold against how the money came', async () => {
   // and the fuels, each priced
   for (const w of ['Petrol', 'Diesel', 'CNG']) {
     if (!t2.includes(w)) throw new Error(`money log missing ${w}`)
+  }
+
+  // the money goes in here, on the page that looks like the book
+  const boxes = page.locator('input[name="cash"], input[name="card"], input[name="upi"], input[name="bpcl"]')
+  if ((await boxes.count()) < 4) throw new Error('nowhere to write the money in')
+  // A filler may already have handed some over, so the page total is not
+  // simply what is typed here. What matters is that the entry sticks.
+  await page.locator('input[name="upi"]').first().fill('137')
+  await page.locator('button', { hasText: 'Save the money' }).first().click()
+  await page.waitForTimeout(3000)
+  await page.reload()
+  await page.waitForLoadState('load')
+  await page.waitForTimeout(800)
+  const kept = await page.locator('input[name="upi"]').first().inputValue()
+  if (Number(kept) !== 137) {
+    throw new Error(`the money did not stay: box holds "${kept}"`)
   }
 
   // the difference belongs to the shift, so it can be written down there
@@ -796,6 +821,20 @@ await checkAsOwner('audit: the trail shows who changed what', async () => {
     if (!t2.includes(w)) throw new Error(`audit trail missing "${w}"`)
   }
   if (!/Manager|Father/.test(t2)) throw new Error('audit trail names nobody')
+})
+
+// Last, once nothing else needs them: retire the filler this run invented,
+// or the handover fills up with strangers who never worked here.
+await check('staff: retire the one this run invented', async () => {
+  await login('manager@test.in')
+  await page.goto(`${BASE}/staff`, { waitUntil: 'load' })
+  const block = page.locator('details').filter({ hasText: `Filler ${STAMP}` })
+  await block.locator('summary').click()
+  await page.waitForTimeout(400)
+  const form = block.locator('form')
+  await form.locator('input[name=is_active]').uncheck()
+  await submitIn(form, 3000)
+  await reflects('Left')
 })
 
 console.log(`\n${'='.repeat(60)}`)

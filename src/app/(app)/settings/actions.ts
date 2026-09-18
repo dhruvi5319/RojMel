@@ -80,29 +80,6 @@ export async function addFuelType(
   return { ok: true }
 }
 
-/**
- * Rates are never overwritten — a new row is added with its own effective
- * time, so a slip written last Tuesday still prices at last Tuesday's rate.
- */
-export async function setRate(_prev: FormState, data: FormData): Promise<FormState> {
-  const supabase = await createClient()
-  const sale_rate = Number(data.get('sale_rate'))
-  if (!(sale_rate > 0)) return { error: 'Enter the new rate per litre.' }
-
-  const effective = String(data.get('effective_from') ?? '').trim()
-
-  const { error } = await supabase.from('fuel_prices').insert({
-    fuel_type_id: String(data.get('fuel_type_id')),
-    sale_rate,
-    effective_from: effective ? new Date(effective).toISOString() : new Date().toISOString(),
-  })
-
-  if (error) return { error: friendly(error) }
-  revalidatePath('/settings')
-  revalidatePath('/shifts')
-  return { ok: true }
-}
-
 export async function addTank(_prev: FormState, data: FormData): Promise<FormState> {
   const supabase = await createClient()
   const name = String(data.get('name') ?? '').trim()

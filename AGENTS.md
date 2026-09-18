@@ -41,6 +41,12 @@ The BPCL card is a prepaid card BPCL issues to a customer, so the fuel is paid
 for — it is a collection, never udhaar — but it settles to the bank and never
 reaches the cash box. Only `cash_amount` does.
 
+**A filler answers for cash, and only cash.** The card machine and the UPI
+account are the pump's, not the person's, so `shift_collections` rows with a
+`staff_id` carry `cash_amount` alone — a check constraint says so. The other
+modes go on the shift's own row, the one with no filler against it, entered on
+the money log. Both rows are counted together.
+
 **Test fuel goes back in the tank.** `litres = closing − opening − test`, and
 test litres are not deducted from stock.
 
@@ -76,7 +82,9 @@ store only the fields that moved, as `[was, now]`; PINs are redacted; only an
 owner can read `v_audit` back.
 
 **Rates are append-only.** Changing a price inserts a new `fuel_prices` row with
-its own `effective_from`. Never update an existing rate.
+its own `effective_from`. Never update an existing rate. `created_by` defaults to
+`auth.uid()` in the database, so the history page can always say who set it
+without a screen having to remember to pass it.
 
 **Every UPDATE and DELETE must prove it changed something.** Postgres row level
 security answers a forbidden write by matching no rows and returning 204, not by

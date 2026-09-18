@@ -51,14 +51,11 @@ export interface CngReadingInput {
   sale_rate: number
 }
 
+/** What a filler hands over: notes. The account-settled modes belong to the
+ *  shift and are entered on the money log. */
 export interface CollectionInput {
   staff_id: string
   cash_amount: number
-  /** the ATM swipe machine */
-  card_amount: number
-  upi_amount: number
-  /** BPCL's prepaid card — collected, but it never reaches the cash box */
-  bpcl_amount: number
 }
 
 /**
@@ -92,13 +89,7 @@ export async function saveShift(
       .in('nozzle_id', drop)
   }
 
-  const keepColl = collections.filter(
-    (c) =>
-      c.cash_amount > 0 ||
-      c.upi_amount > 0 ||
-      c.card_amount > 0 ||
-      c.bpcl_amount > 0,
-  )
+  const keepColl = collections.filter((c) => c.cash_amount > 0)
 
   if (keepColl.length > 0) {
     const { error } = await supabase.from('shift_collections').upsert(

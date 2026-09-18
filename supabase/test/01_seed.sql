@@ -89,8 +89,12 @@ insert into credit_sales (station_id, business_date, shift_id, customer_id, vehi
 insert into cng_readings (station_id, shift_id, dispenser_id, staff_id, opening_reading, closing_reading, test_kg, sale_rate) values
   ('11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-0000000000c9', '11111111-0000-0000-0000-00000000000f', 5000, 5100, 0, 79.670);
 
+-- Ramesh hands over his cash; the UPI and the BPCL card settled into the
+-- pump's one account, so they sit on the shift rather than on him.
+insert into shift_collections (station_id, shift_id, staff_id, cash_amount) values
+  ('11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-00000000000f', 30000);
 insert into shift_collections (station_id, shift_id, staff_id, cash_amount, upi_amount, bpcl_amount) values
-  ('11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-00000000000f', 30000, 6947, 7967);
+  ('11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000c1', null, 0, 6947, 7967);
 
 insert into expenses (station_id, business_date, category, description, amount, mode) values
   ('11111111-1111-1111-1111-111111111111', current_date, 'Repairs', 'Nozzle hose', 500, 'cash');
