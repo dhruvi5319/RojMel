@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useT } from '@/lib/i18n/client'
 import { Alert, Button } from '@/components/ui'
+import { useCloseDisclosure } from '@/components/Disclosure'
 
 export type { FormState } from '@/lib/actions'
 import type { FormState } from '@/lib/actions'
@@ -51,6 +52,7 @@ export function ActionForm({
   onDone,
   resetOnSuccess = false,
   onSuccess,
+  stayOpen = false,
 }: {
   action: FormAction
   children: React.ReactNode
@@ -60,16 +62,27 @@ export function ActionForm({
   resetOnSuccess?: boolean
   /** For a form whose shape is state, not fields — reset() cannot reach it. */
   onSuccess?: () => void
+  /** For a form meant to be used again straight away. */
+  stayOpen?: boolean
 }) {
   const [state, formAction] = useActionState(action, {})
   const ref = useRef<HTMLFormElement>(null)
+  const close = useCloseDisclosure()
 
   useEffect(() => {
     if (!state.ok) return
     if (resetOnSuccess) ref.current?.reset()
     onSuccess?.()
-    // The callback is a fresh closure each render; only a new result should
-    // fire it.
+
+    // Long enough to read "Saved", then the panel gets out of the way — a
+    // form still sitting open with its fields full reads as "nothing
+    // happened", which is the one thing it must not say.
+    if (!stayOpen && close) {
+      const t = setTimeout(close, 900)
+      return () => clearTimeout(t)
+    }
+    // The callbacks are fresh closures each render; only a new result should
+    // fire them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetOnSuccess, state])
 

@@ -156,6 +156,34 @@ export async function setShiftStatus(
   return {}
 }
 
+/**
+ * The office takes the shift's figures as true.
+ *
+ * Until this, the filler may keep correcting their own readings and handover —
+ * a mistyped meter is theirs to fix, not something to be argued about in the
+ * office. Approving draws the line: from here only the office can reopen it.
+ */
+export async function approveShift(shiftId: string): Promise<ActionResult> {
+  const supabase = await createClient()
+  const { error } = await supabase.rpc('approve_shift', { p_shift_id: shiftId })
+  if (error) return { error: friendly(error) }
+  revalidatePath(`/shifts/${shiftId}`)
+  revalidatePath('/shifts')
+  revalidatePath('/moneylog')
+  return {}
+}
+
+/** Reopening it — the office may, whether or not it was approved. */
+export async function reopenShift(shiftId: string): Promise<ActionResult> {
+  const supabase = await createClient()
+  const { error } = await supabase.rpc('reopen_shift', { p_shift_id: shiftId })
+  if (error) return { error: friendly(error) }
+  revalidatePath(`/shifts/${shiftId}`)
+  revalidatePath('/shifts')
+  revalidatePath('/moneylog')
+  return {}
+}
+
 export async function deleteShift(shiftId: string): Promise<ActionResult> {
   const supabase = await createClient()
   const outcome = changed(

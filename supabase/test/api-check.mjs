@@ -402,6 +402,61 @@ check('rpc reopen_day', await owner.rpc('reopen_day', { p_date: today, p_reason:
 
 /* ------------------------------------------------------------ as counter -- */
 const counter = await signIn('counter@test.in')
+
+/* ------------------------------------------------- the shift's lifecycle -- */
+console.log('\n--- opening, closing and agreeing a shift ---')
+{
+  const day = check('the day\'s shifts', await mgr.rpc('ensure_day_shifts', { p_date: today }))
+  const night = (day ?? []).find((s) => s.name === 'Night')
+
+  // A filler finishes their own shift; the office has not agreed it yet.
+  const closed = check('a filler closes their shift',
+    await counter.rpc('close_shift', { p_shift_id: night.id }))
+  assert(closed?.status === 'submitted', '  it reads as handed in',
+    `status ${closed?.status}`)
+
+  // and may still correct their own readings, because nobody has agreed them
+  const nz = nozzles[0]
+  const { error: fixErr } = await counter.from('nozzle_readings').upsert({
+    shift_id: night.id, nozzle_id: nz.nozzle_id,
+    opening_reading: 0, closing_reading: 10, test_litres: 0, sale_rate: nz.sale_rate,
+  }, { onConflict: 'shift_id,nozzle_id' })
+  assert(!fixErr, '  and can still fix a reading before it is agreed',
+    fixErr?.message ?? '')
+
+  // a filler cannot agree their own figures
+  const { error: selfErr } = await counter.rpc('approve_shift', { p_shift_id: night.id })
+  assert(selfErr != null, '  but cannot agree them themselves', 'the counter approved it')
+
+  // the office agrees them, and that is the line
+  const agreed = check('the office agrees the shift',
+    await mgr.rpc('approve_shift', { p_shift_id: night.id }))
+  assert(agreed?.status === 'approved', '  it reads as approved', `status ${agreed?.status}`)
+  assert(agreed?.approved_by != null, '  and records who agreed it', 'no approver')
+
+  const { error: lateErr } = await counter.from('nozzle_readings').upsert({
+    shift_id: night.id, nozzle_id: nz.nozzle_id,
+    opening_reading: 0, closing_reading: 99, test_litres: 0, sale_rate: nz.sale_rate,
+  }, { onConflict: 'shift_id,nozzle_id' })
+  const { data: after } = await mgr.from('nozzle_readings')
+    .select('closing_reading').eq('shift_id', night.id).eq('nozzle_id', nz.nozzle_id).single()
+  assert(lateErr != null || Number(after?.closing_reading) === 10,
+    '  after that the filler is out',
+    `closing is ${after?.closing_reading}`)
+
+  // a filler cannot reopen what the office has agreed; the office can
+  const { error: reErr } = await counter.rpc('reopen_shift', { p_shift_id: night.id })
+  assert(reErr != null, '  and cannot reopen it', 'the counter reopened an agreed shift')
+  const reopened = check('the office reopens it',
+    await mgr.rpc('reopen_shift', { p_shift_id: night.id }))
+  assert(reopened?.status === 'open', '  and it is editable again',
+    `status ${reopened?.status}`)
+
+  // Taken back out: the day's totals below are asserted to the rupee, and
+  // this reading was only ever here to prove who may touch it when.
+  await mgr.from('nozzle_readings').delete().eq('shift_id', night.id)
+}
+
 console.log('\n--- counter device ---')
 
 check('counter sees nozzles', await counter.from('v_nozzle_state').select('*'), (d) =>

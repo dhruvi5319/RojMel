@@ -288,6 +288,36 @@ await check('bank: EDIT the deposit', async () => {
   if (!(await body()).includes(`SLIP${STAMP}`)) throw new Error('slip reference did not update')
 })
 
+// A form that has saved must get out of the way. One still open with its
+// fields full reads as "nothing happened", which is the one thing it must
+// not say.
+await check('a saved form closes itself', async () => {
+  await page.goto(`${BASE}/expenses`)
+  await openPanel('Add expense')
+  const f = page.locator('form').filter({ has: page.locator('input[name=category]') })
+  await f.locator('input[name=category]').fill(`Closes ${STAMP}`)
+  await f.locator('input[name=amount]').fill('123')
+  await submitIn(f, 2600)
+  if ((await page.locator('form').filter({ has: page.locator('input[name=category]') }).count()) !== 0) {
+    throw new Error('the add panel stayed open after saving')
+  }
+  await reflects(`Closes ${STAMP}`)
+
+  // and so does a row editor, once the correction is in
+  await openRowEditor(`Closes ${STAMP}`)
+  const e = page.locator('td[colspan] form')
+  await e.locator('input[name=amount]').fill('456')
+  await submitIn(e, 2600)
+  if ((await page.locator('td[colspan] form').count()) !== 0) {
+    throw new Error('the row editor stayed open after saving')
+  }
+  await reflects('456')
+
+  const row = page.locator('tr', { hasText: `Closes ${STAMP}` }).first()
+  await row.locator('button[aria-label^="Delete"]').click()
+  await page.waitForTimeout(2500)
+})
+
 console.log('\n=== STOCK ===')
 // One trip from the depot, decanted into two of our tanks. The tanker is
 // entered once; the compartments are never written down.
@@ -518,7 +548,7 @@ await check('money log: sold against how the money came', async () => {
   // A filler may already have handed some over, so the page total is not
   // simply what is typed here. What matters is that the entry sticks.
   await page.locator('input[name="upi"]').first().fill('137')
-  await page.locator('button', { hasText: 'Save the money' }).first().click()
+  await page.locator('button', { hasText: 'Save what came in' }).first().click()
   await page.waitForTimeout(3000)
   await page.reload()
   await page.waitForLoadState('load')
@@ -535,8 +565,17 @@ await check('money log: sold against how the money came', async () => {
   await f.locator('button[type=submit]').click()
   await page.waitForTimeout(3000)
   await reflects(`Counted together ${STAMP}`)
-  if (!(await body()).includes('Recorded as')) {
-    throw new Error('the difference was not recorded against the shift')
+  const after = await body()
+  if (!after.includes('Agreed')) {
+    throw new Error('the difference was not agreed against the shift')
+  }
+  // The two steps must say which is which — they used to be two unlabelled
+  // buttons stacked on each other, and nobody could tell them apart.
+  for (const w of ['STEP 1 · WRITE IN THE MONEY', 'STEP 2 · SETTLE THE DIFFERENCE']) {
+    if (!after.includes(w)) throw new Error(`the money log is missing "${w}"`)
+  }
+  if (!/is short by|is over by|Nothing to settle/.test(after)) {
+    throw new Error('the difference is not said in words, only on a button')
   }
 })
 
@@ -828,6 +867,62 @@ await check('counter: a filler writes an udhaar slip, on their shift', async () 
   await page.locator('button', { hasText: /^(Save|સાચવો)$/ }).first().click()
   await page.waitForTimeout(3000)
   if (!(await body()).includes('Saved')) throw new Error('no confirmation after saving')
+})
+
+// The filler starts and finishes their own shift, and may keep correcting it
+// until the office agrees the figures.
+await check('counter: a filler closes their own shift', async () => {
+  await page.goto(`${BASE}/counter`)
+  await page.locator('button', { hasText: 'Ramesh' }).first().click()
+  await page.waitForTimeout(400)
+  await page.locator('button', { hasText: 'My shift' }).first().click()
+  await page.waitForTimeout(700)
+
+  const t2 = await body()
+  for (const w of ['Day shift', 'Night shift']) {
+    if (!t2.includes(w)) throw new Error(`the shift screen is missing "${w}"`)
+  }
+  // A previous run may have left it handed in. Reopening is the filler's too,
+  // so use it to get back to a shift they can close.
+  const reopen = page.locator('button', { hasText: 'Reopen to fix something' })
+  if ((await reopen.count()) > 0) {
+    await reopen.first().click()
+    await page.waitForTimeout(3000)
+  }
+
+  const finish = page.locator('button', { hasText: 'My shift is finished' })
+  if ((await finish.count()) === 0) {
+    throw new Error(`no way for a filler to close the shift: ${await body()}`)
+  }
+  await finish.first().click()
+  await page.waitForTimeout(3000)
+
+  const t3 = await body()
+  if (!/waiting for the office/.test(t3)) throw new Error('the shift did not read as handed in')
+  if ((await page.locator('button', { hasText: 'Reopen to fix something' }).count()) === 0) {
+    throw new Error('the filler cannot reopen their own shift before it is agreed')
+  }
+})
+
+await check('shifts: the office agrees the figures, and the filler is out', async () => {
+  await login('father@test.in')
+  await page.goto(`${BASE}/shifts`)
+  await page.locator('a', { hasText: 'Meter readings' }).first().click()
+  await page.waitForURL(/\/shifts\/[0-9a-f-]{36}/, { timeout: 20000 })
+  await page.waitForTimeout(700)
+
+  const agree = page.locator('button', { hasText: 'Agree these figures' })
+  if ((await agree.count()) === 0) throw new Error('the office cannot agree the shift')
+  await agree.first().click()
+  await page.waitForTimeout(3000)
+  if (!/Agreed at/.test(await body())) throw new Error('the shift does not say who agreed it')
+
+  // and the office can undo it, which a filler cannot
+  const reopen = page.locator('button', { hasText: 'Reopen for corrections' })
+  if ((await reopen.count()) === 0) throw new Error('the office cannot reopen an agreed shift')
+  await reopen.first().click()
+  await page.waitForTimeout(3000)
+  await login('counter@test.in')
 })
 
 await check('counter: the slip reached the books, on the shift it was tagged to', async () => {

@@ -2,7 +2,9 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Check, Fuel, Gauge, LogOut, Truck, UserRound } from 'lucide-react'
+import {
+  ArrowLeft, Check, Clock, Fuel, Gauge, LogOut, Truck, UserRound,
+} from 'lucide-react'
 import { useT } from '@/lib/i18n/client'
 import { useLang } from '@/lib/i18n/client'
 import { litres as fmtLitres, money } from '@/lib/format'
@@ -12,14 +14,16 @@ import type {
 import { LanguageSeg } from '@/components/AppNav'
 import { Alert, Badge, Button, Card, Field, NumberInput, Select, Input } from '@/components/ui'
 import { SHIFTS, shiftLabel } from '@/lib/shifts'
-import { counterReading, counterSlip, ensureShift } from './actions'
+import {
+  closeMyShift, counterReading, counterSlip, ensureShift, reopenMyShift,
+} from './actions'
 
 export interface CounterCustomer {
   id: string
   name: string
 }
 
-type View = 'pick' | 'menu' | 'slip' | 'reading' | 'done'
+type View = 'pick' | 'menu' | 'slip' | 'reading' | 'shift' | 'done'
 
 const n = (v: string) => (v.trim() === '' ? 0 : Number(v))
 
@@ -218,8 +222,50 @@ export function CounterApp({
                   setView('reading')
                 }}
               />
+              <BigButton
+                icon={Clock}
+                label={t('counter.myShift')}
+                onClick={() => {
+                  setError(null)
+                  setView('shift')
+                }}
+              />
             </div>
           </div>
+        ) : null}
+
+        {/* -------------------------------------------------- my shift -- */}
+        {view === 'shift' ? (
+          <MyShiftScreen
+            shifts={shifts}
+            pending={pending}
+            error={error}
+            onBack={() => setView('menu')}
+            onOpen={(name, order) => {
+              setError(null)
+              startTransition(async () => {
+                const r = await ensureShift(name, order, today)
+                if ('error' in r && r.error) setError(r.error)
+                else router.refresh()
+              })
+            }}
+            onClose={(id) => {
+              setError(null)
+              startTransition(async () => {
+                const r = await closeMyShift(id)
+                if (r.error) setError(r.error)
+                else router.refresh()
+              })
+            }}
+            onReopen={(id) => {
+              setError(null)
+              startTransition(async () => {
+                const r = await reopenMyShift(id)
+                if (r.error) setError(r.error)
+                else router.refresh()
+              })
+            }}
+          />
         ) : null}
 
         {/* -------------------------------------------------------- slip -- */}
@@ -721,6 +767,101 @@ function ReadingForm({
         >
           {pending ? t('common.saving') : t('common.save')}
         </Button>
+      </Card>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------- my shift -- */
+/**
+ * The filler's own shift: start it, finish it, or reopen it to fix something.
+ *
+ * Closing is theirs because they are the one who handed the money over. The
+ * figures stay theirs to correct until the office approves the shift — that is
+ * the line, not closing it.
+ */
+function MyShiftScreen({
+  shifts,
+  pending,
+  error,
+  onBack,
+  onOpen,
+  onClose,
+  onReopen,
+}: {
+  shifts: Shift[]
+  pending: boolean
+  error: string | null
+  onBack: () => void
+  onOpen: (name: string, order: number) => void
+  onClose: (id: string) => void
+  onReopen: (id: string) => void
+}) {
+  const t = useT()
+
+  return (
+    <div>
+      <BackBar label={t('counter.myShift')} onBack={onBack} />
+      <Card className="flex flex-col gap-4 p-5">
+        {SHIFTS.map((option) => {
+          const shift = shifts.find((s) => s.name === option.name)
+          const status = shift?.status
+          return (
+            <div
+              key={option.name}
+              className="flex items-center justify-between gap-3 rounded-[22px] bg-surface px-5 py-4"
+            >
+              <div className="min-w-0">
+                <div className="text-[17px] font-semibold">{t(option.key)}</div>
+                <div className="mt-1 text-[13px] text-neutral-600">
+                  {status === 'approved'
+                    ? t('counter.shiftApproved')
+                    : status === 'submitted'
+                      ? t('counter.shiftClosed')
+                      : status === 'open'
+                        ? t('shift.open')
+                        : t('counter.shiftNotOpen')}
+                </div>
+              </div>
+
+              <div className="shrink-0">
+              {!shift ? (
+                <Button
+                  size="md"
+                  disabled={pending}
+                  onClick={() => onOpen(option.name, option.order)}
+                >
+                  {t('counter.openMyShift')}
+                </Button>
+              ) : status === 'open' ? (
+                <Button size="md" disabled={pending} onClick={() => onClose(shift.id)}>
+                  {t('counter.closeMyShift')}
+                </Button>
+              ) : status === 'submitted' ? (
+                <Button
+                  size="md"
+                  variant="secondary"
+                  disabled={pending}
+                  onClick={() => onReopen(shift.id)}
+                >
+                  {t('counter.reopenMyShift')}
+                </Button>
+              ) : (
+                <Badge tone="ok">
+                  <Check className="size-3.5" aria-hidden /> {t('shift.approved')}
+                </Badge>
+              )}
+              </div>
+            </div>
+          )
+        })}
+
+        <p className="text-[13px] text-neutral-600">
+          {shifts.some((s) => s.status === 'approved')
+            ? t('counter.lockedByOffice')
+            : t('counter.canStillFix')}
+        </p>
+        {error ? <Alert tone="danger">{error}</Alert> : null}
       </Card>
     </div>
   )

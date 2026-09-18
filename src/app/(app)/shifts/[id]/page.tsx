@@ -9,6 +9,7 @@ import type {
 } from '@/lib/database.types'
 import { Alert, LinkButton, PageHeader } from '@/components/ui'
 import { ShiftEntry } from './ShiftEntry'
+import { ShiftStatusBar } from './ShiftStatusBar'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,6 +59,16 @@ export default async function ShiftPage({
   const locked =
     shift.status === 'approved' || closingRes.data?.status === 'approved'
 
+  // Who in the office agreed it, for the line that says so.
+  const { data: agreed } = shift.approved_by
+    ? await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', shift.approved_by)
+        .maybeSingle<{ full_name: string }>()
+    : { data: null }
+  const approvedByName = agreed?.full_name ?? null
+
   return (
     <>
       <PageHeader
@@ -74,7 +85,9 @@ export default async function ShiftPage({
         }
       />
 
-      {locked ? (
+      <ShiftStatusBar shift={shift} approvedByName={approvedByName} />
+
+      {closingRes.data?.status === 'approved' ? (
         <div className="mb-4">
           <Alert tone="accent">{t('day.locked')}</Alert>
         </div>

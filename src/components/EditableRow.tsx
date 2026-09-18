@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Pencil, X } from 'lucide-react'
+import { DisclosureContext } from '@/components/Disclosure'
 
 /**
  * A table row that opens an edit form beneath itself. Correcting a mistyped
@@ -21,6 +22,7 @@ export function EditableRow({
   label: string
 }) {
   const [open, setOpen] = useState(false)
+  const close = useCallback(() => setOpen(false), [])
 
   return (
     <>
@@ -48,7 +50,7 @@ export function EditableRow({
       {open ? (
         <tr>
           <td colSpan={span + 1} className="border-b border-divider bg-neutral-200 p-4">
-            {form}
+            <DisclosureContext.Provider value={close}>{form}</DisclosureContext.Provider>
           </td>
         </tr>
       ) : null}

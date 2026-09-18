@@ -45,6 +45,11 @@ plain arithmetic: what the trucks brought, less what was sold. There is no tank
 to dip. Its opening and closing readings are entered with the shift, beside the
 nozzles, so the day still tallies as one day.
 
+A filler starts and finishes their own shift on the counter device, because
+they are the one who hands the money over. Their figures stay theirs to correct
+until an owner or manager presses **Agree these figures** on the shift — after
+that only the office can reopen it.
+
 The pump runs **two shifts**, day and night. Every udhaar slip says which one
 it was written in — on the filler's own screen and in the office — because the
 money log reconciles each shift separately, and a slip belonging to no shift

@@ -268,12 +268,10 @@ export default async function MoneyLogPage({
 
                 {/* ────────────────────────────── writing the money in ──── */}
                 <div className="border-t border-divider p-5">
-                  <div className="mb-3 flex flex-wrap items-baseline gap-2">
-                    <Kicker>{t('money.enterMoney')}</Kicker>
-                    <span className="text-[12px] text-neutral-600">
-                      {t('money.udhaarFromSlips')}
-                    </span>
-                  </div>
+                  <Kicker>{t('money.step1')}</Kicker>
+                  <p className="mt-2 mb-3 max-w-prose text-[12.5px] text-neutral-600">
+                    {t('money.step1Hint')} {t('money.udhaarFromSlips')}
+                  </p>
                   <MoneyForm
                     shiftId={s.shift_id}
                     cash={own.cash}
@@ -288,24 +286,16 @@ export default async function MoneyLogPage({
 
                 {/* ───────────────────────── the difference, written down ── */}
                 <div className="border-t border-divider p-5">
-                  {recorded ? (
-                    <p className="mb-3 text-[12.5px] text-neutral-600">
-                      {t('money.recordedAs')}{' '}
-                      <strong className="tabular">
-                        {money(s.variance_amount ?? 0)}
-                      </strong>
-                      {s.variance_note ? ` — ${s.variance_note}` : ''}
-                    </p>
-                  ) : (
-                    <p className="mb-3 text-[12.5px] text-neutral-600">
-                      {t('money.notRecorded')}
-                    </p>
-                  )}
+                  <Kicker>{t('money.step2')}</Kicker>
+                  <p className="mt-2 mb-3 max-w-prose text-[12.5px] text-neutral-600">
+                    {t('money.step2Hint')}
+                  </p>
                   <VarianceForm
                     shiftId={s.shift_id}
                     difference={diff}
                     note={s.variance_note}
                     recorded={recorded}
+                    recordedAmount={s.variance_amount}
                   />
                 </div>
               </Card>

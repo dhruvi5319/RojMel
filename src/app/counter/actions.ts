@@ -100,3 +100,29 @@ export async function ensureShift(name: string, sortOrder: number, date: string)
   if (error) return { error: error.message }
   return { id: data.id }
 }
+
+/**
+ * The filler says their shift is finished.
+ *
+ * Closing it is theirs to do: they are the one who handed the money over, and
+ * a shift left open until the office noticed was a shift nobody had signed.
+ * The figures stay theirs to correct until an owner or manager approves it.
+ */
+export async function closeMyShift(shiftId: string): Promise<CounterResult> {
+  const supabase = await createClient()
+  const { error } = await supabase.rpc('close_shift', { p_shift_id: shiftId })
+  if (error) return { error: error.message }
+  revalidatePath('/counter')
+  revalidatePath('/shifts')
+  return { ok: true }
+}
+
+/** Reopening it to fix something, while the books have not yet agreed it. */
+export async function reopenMyShift(shiftId: string): Promise<CounterResult> {
+  const supabase = await createClient()
+  const { error } = await supabase.rpc('reopen_shift', { p_shift_id: shiftId })
+  if (error) return { error: error.message }
+  revalidatePath('/counter')
+  revalidatePath('/shifts')
+  return { ok: true }
+}

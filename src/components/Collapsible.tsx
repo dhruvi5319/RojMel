@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { ChevronDown, Plus } from 'lucide-react'
+import { DisclosureContext } from '@/components/Disclosure'
 
 /** An add-form that stays out of the way until it is wanted. */
 export function Collapsible({
@@ -14,6 +15,7 @@ export function Collapsible({
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  const close = useCallback(() => setOpen(false), [])
 
   return (
     <div className="no-print rounded-xl border border-divider bg-surface">
@@ -32,7 +34,11 @@ export function Collapsible({
           aria-hidden
         />
       </button>
-      {open ? <div className="border-t border-divider p-4 sm:p-5">{children}</div> : null}
+      {open ? (
+        <div className="border-t border-divider p-4 sm:p-5">
+          <DisclosureContext.Provider value={close}>{children}</DisclosureContext.Provider>
+        </div>
+      ) : null}
     </div>
   )
 }

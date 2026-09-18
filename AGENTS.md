@@ -42,6 +42,21 @@ The BPCL card is a prepaid card BPCL issues to a customer, so the fuel is paid
 for — it is a collection, never udhaar — but it settles to the bank and never
 reaches the cash box. Only `cash_amount` does.
 
+**A form that saved must get out of the way.** `ActionForm` closes whatever
+disclosure it sits in — `Collapsible` or `EditableRow` provide the close through
+`DisclosureContext` — about a second after a save, long enough to read "Saved".
+A form still sitting open with its fields full reads as "nothing happened",
+which is the one thing it must not say. `stayOpen` opts out, for a form that is
+meant to be used again straight away.
+
+**The shift is the filler's until the office agrees it.** A filler opens and
+closes their own shift on the counter (`close_shift`, `reopen_shift`) — they are
+the one who handed the money over. Their readings and handover stay theirs to
+correct while the shift is anything but `approved`; the counter's RLS reads that
+status, not `open`. `approve_shift()` is the office's act and the line: past it
+only an owner or manager can reopen. Approving is a shift, not a day — the day
+lock in `day_closings` is separate and still applies on top.
+
 **Two shifts: day and night.** `src/lib/shifts.ts` names them once, and the
 shift opener, the counter device and every slip form offer the same two — a
 third name typed on one screen would be a shift the money log could never
