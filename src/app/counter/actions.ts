@@ -102,13 +102,15 @@ export async function ensureShift(name: string, sortOrder: number, date: string)
 }
 
 /**
- * The filler says their shift is finished.
+ * The shift is finished.
  *
- * Closing it is theirs to do: they are the one who handed the money over, and
- * a shift left open until the office noticed was a shift nobody had signed.
- * The figures stay theirs to correct until an owner or manager approves it.
+ * Finishing it belongs to the people who worked it rather than to the office —
+ * a shift left open until somebody in the back noticed was a shift nobody had
+ * signed off. The device is shared by everyone on the shift, so this is not
+ * one person saying they are going home: it is the shift being closed. The
+ * figures stay correctable until an owner or manager approves it.
  */
-export async function closeMyShift(shiftId: string): Promise<CounterResult> {
+export async function finishShift(shiftId: string): Promise<CounterResult> {
   const supabase = await createClient()
   const { error } = await supabase.rpc('close_shift', { p_shift_id: shiftId })
   if (error) return { error: error.message }
@@ -118,7 +120,7 @@ export async function closeMyShift(shiftId: string): Promise<CounterResult> {
 }
 
 /** Reopening it to fix something, while the books have not yet agreed it. */
-export async function reopenMyShift(shiftId: string): Promise<CounterResult> {
+export async function reopenShift(shiftId: string): Promise<CounterResult> {
   const supabase = await createClient()
   const { error } = await supabase.rpc('reopen_shift', { p_shift_id: shiftId })
   if (error) return { error: error.message }

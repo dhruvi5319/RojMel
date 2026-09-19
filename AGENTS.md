@@ -71,6 +71,12 @@ against whoever served the lorry, so that form asks "Who is serving?" at the
 moment it counts. A filler works one shift and there is no way from their
 screen into the other one.
 
+**Nothing on the counter is written in the first person.** The device is
+shared by everybody on the shift, so "My shift is finished" was a button
+claiming the shift belonged to whoever happened to press it. It is *the* shift
+— the shift is finished, the shift is running — and anyone standing there can
+start it or close it. Same in the code: `finishShift`, not `closeMyShift`.
+
 **The counter is three tabs, because it is three errands.** *Shift* — start it,
 read the meters, see the hissab, finish it. *Who is on* — the fillers standing
 there. *Udhaar* — the slips written during it.
@@ -287,6 +293,10 @@ collection, **account history** not ledger, **change history** not audit trail,
 **should be in tank** not book stock, **running costs** not operating expenses.
 Local words that are already the plainest available — udhaar, challan, dip —
 stay.
+
+On the counter device, never the first person. It is shared by everyone on the
+shift, so "my", "mine" and "yours" all claim something for whoever is holding
+it. The shift is *the* shift.
 
 ## Conventions
 

@@ -15,8 +15,8 @@ import { LanguageSeg } from '@/components/AppNav'
 import { Alert, Badge, Button, Card, Field, NumberInput, Select, Input } from '@/components/ui'
 import { shiftHours, shiftLabel } from '@/lib/shifts'
 import {
-  addFillerToShift, closeMyShift, counterSlip, ensureShift, removeFillerFromShift,
-  reopenMyShift, saveMeterReading,
+  addFillerToShift, counterSlip, ensureShift, finishShift, removeFillerFromShift,
+  reopenShift as reopenShiftAction, saveMeterReading,
 } from './actions'
 
 export interface CounterCustomer {
@@ -132,7 +132,7 @@ export function CounterApp({
   function closeShift(id: string) {
     setError(null)
     startTransition(async () => {
-      const r = await closeMyShift(id)
+      const r = await finishShift(id)
       if (r.error) setError(r.error)
       else router.refresh()
     })
@@ -141,7 +141,7 @@ export function CounterApp({
   function reopenShift(id: string) {
     setError(null)
     startTransition(async () => {
-      const r = await reopenMyShift(id)
+      const r = await reopenShiftAction(id)
       if (r.error) setError(r.error)
       else router.refresh()
     })
@@ -696,7 +696,7 @@ function ShiftCard({
             disabled={pending}
             onClick={() => onOpen(running.name, running.order)}
           >
-            {t('counter.openMyShift')}
+            {t('counter.startShift')}
           </Button>
         </div>
       </div>
@@ -715,14 +715,14 @@ function ShiftCard({
               ? t('counter.shiftApproved')
               : status === 'submitted'
                 ? t('counter.shiftClosed')
-                : t('counter.shiftYours')}
+                : t('counter.shiftRunning')}
           </div>
         </div>
 
         <div className="shrink-0">
           {status === 'open' ? (
             <Button size="md" disabled={pending} onClick={() => onClose(shift.id)}>
-              {t('counter.closeMyShift')}
+              {t('counter.finishShift')}
             </Button>
           ) : status === 'submitted' ? (
             <Button
@@ -731,7 +731,7 @@ function ShiftCard({
               disabled={pending}
               onClick={() => onReopen(shift.id)}
             >
-              {t('counter.reopenMyShift')}
+              {t('counter.reopenShift')}
             </Button>
           ) : (
             <Badge tone="ok">

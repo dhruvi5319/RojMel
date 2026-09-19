@@ -1105,11 +1105,11 @@ await check('counter: the clock says which shift, nobody is asked', async () => 
   if (!/\dam|\dpm/.test(t2)) throw new Error('the shift does not say what hours it runs')
 
   // Start it if nobody has, then the meter must open without asking a name.
-  const start = page.locator('button', { hasText: 'Start my shift' })
+  const start = page.locator('button', { hasText: 'Start the shift' })
   if ((await start.count()) > 0) {
     await start.first().click()
     await page.waitForTimeout(3500)
-    if (!/Yours until you finish it|waiting for the office/.test(await body())) {
+    if (!/Running — finish it|waiting for the office/.test(await body())) {
       throw new Error(`starting the shift did nothing: ${await body()}`)
     }
   }
@@ -1195,7 +1195,7 @@ await check('counter: a filler closes their own shift', async () => {
     await page.waitForTimeout(3000)
   }
 
-  const finish = page.locator('button', { hasText: 'My shift is finished' })
+  const finish = page.locator('button', { hasText: 'The shift is finished' })
   if ((await finish.count()) === 0) {
     throw new Error(`no way for a filler to close the shift: ${await body()}`)
   }
