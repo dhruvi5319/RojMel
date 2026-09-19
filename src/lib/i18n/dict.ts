@@ -467,6 +467,10 @@ export const en = {
 
   'set.title': 'Settings',
   'set.station': 'Pump details',
+  'set.dayStarts': 'Day shift starts',
+  'set.nightStarts': 'Night shift starts',
+  'set.shiftHoursHint':
+    "The pump's day rolls with the day shift, so a slip written before this belongs to the night before.",
   'set.fuels': 'Fuels',
   'set.fuelsAreEquipment': 'What the pump sells and how it is measured. Prices are set under Today.',
   'set.tanks': 'Tanks',
@@ -1010,6 +1014,10 @@ export const gu: Record<DictKey, string> = {
 
   'set.title': 'સેટિંગ',
   'set.station': 'પંપની વિગત',
+  'set.dayStarts': 'દિવસ શિફ્ટ શરૂ',
+  'set.nightStarts': 'રાત શિફ્ટ શરૂ',
+  'set.shiftHoursHint':
+    'પંપનો દિવસ દિવસ-શિફ્ટ સાથે બદલાય છે, એટલે તે પહેલાં લખાયેલી સ્લિપ આગલી રાતની ગણાય.',
   'set.fuels': 'ફ્યુઅલ',
   'set.fuelsAreEquipment': 'પંપ શું વેચે છે અને કઈ રીતે મપાય છે. ભાવ આજેમાં નક્કી થાય છે.',
   'set.tanks': 'ટાંકીઓ',

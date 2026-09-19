@@ -44,6 +44,28 @@ export function StationForm({ station }: { station: Station }) {
           <Input name="invoice_prefix" defaultValue={station.invoice_prefix} />
         </Field>
       </div>
+
+      {/* When the shifts change over. The day shift's time is also when the
+          pump's working day rolls, so a slip written before it belongs to the
+          night that started the evening before. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={t('set.dayStarts')} hint={t('set.shiftHoursHint')} required>
+          <Input
+            name="day_starts_at"
+            type="time"
+            required
+            defaultValue={station.day_starts_at?.slice(0, 5)}
+          />
+        </Field>
+        <Field label={t('set.nightStarts')} required>
+          <Input
+            name="night_starts_at"
+            type="time"
+            required
+            defaultValue={station.night_starts_at?.slice(0, 5)}
+          />
+        </Field>
+      </div>
       <div>
         <SubmitButton size="md">{t('common.save')}</SubmitButton>
       </div>

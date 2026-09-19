@@ -1,8 +1,8 @@
 import Link from 'next/link'
-import { requireBackOffice } from '@/lib/auth'
+import { requireBackOffice , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, money, todayIST } from '@/lib/format'
+import {formatDate, money} from '@/lib/format'
 import type { DayBookEntry } from '@/lib/database.types'
 import {
   Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th, rowClass,
@@ -21,10 +21,10 @@ export default async function DayBookPage({
 }: {
   searchParams: Promise<{ month?: string }>
 }) {
-  await requireBackOffice()
+  const session = await requireBackOffice()
   const t = await getT()
   const supabase = await createClient()
-  const today = todayIST()
+  const today = pumpToday(session)
   const month = (await searchParams).month || today.slice(0, 7)
 
   const { data } = await supabase.rpc('day_book_month', { p_month: `${month}-01` })
@@ -52,7 +52,7 @@ export default async function DayBookPage({
       </div>
 
       <Card className="mb-5 p-5">
-        <Calendar month={month} entries={entries} />
+        <Calendar month={month} entries={entries} today={today} />
       </Card>
 
       <Card className="overflow-hidden pb-1">

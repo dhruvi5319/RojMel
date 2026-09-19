@@ -1,8 +1,8 @@
 import { Fragment } from 'react'
-import { isOwner, requireBackOffice } from '@/lib/auth'
+import { isOwner, requireBackOffice , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, litres, money, todayIST } from '@/lib/format'
+import {formatDate, litres, money} from '@/lib/format'
 import type {
   Delivery, FuelPurchaseCost, LastTax, Shift, Staff, Tank, TankStock,
 } from '@/lib/database.types'
@@ -28,7 +28,7 @@ export default async function StockPage() {
   const owner = isOwner(session)
   const t = await getT()
   const supabase = await createClient()
-  const today = todayIST()
+  const today = pumpToday(session)
 
   const [stockRes, tanksRes, staffRes, deliveriesRes, shiftsRes, lastTaxRes] =
     await Promise.all([

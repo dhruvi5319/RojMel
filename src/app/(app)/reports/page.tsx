@@ -1,7 +1,7 @@
-import { requireOwner } from '@/lib/auth'
+import { requireOwner , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, litres, money, monthEnd, monthStart, quantity, todayIST } from '@/lib/format'
+import {formatDate, litres, money, monthEnd, monthStart, quantity} from '@/lib/format'
 import type { MarginReport, SalesByDay, SalesByFuel } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th,
@@ -18,9 +18,9 @@ export default async function ReportsPage({
 }) {
   // Margin is owner business. requireOwner sends a manager back to the
   // dashboard, and margin_report() refuses her a second time in the database.
-  await requireOwner()
+  const session = await requireOwner()
   const sp = await searchParams
-  const today = todayIST()
+  const today = pumpToday(session)
   const from = sp.from || monthStart(today)
   const to = sp.to || monthEnd(today)
 

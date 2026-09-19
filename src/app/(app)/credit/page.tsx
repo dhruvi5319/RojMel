@@ -1,9 +1,9 @@
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
-import { requireBackOffice } from '@/lib/auth'
+import { requireBackOffice , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDateLong, money, quantity, todayIST } from '@/lib/format'
+import {formatDateLong, money, quantity} from '@/lib/format'
 import type { CreditSale } from '@/lib/database.types'
 import {
   Badge, Card, Empty, LinkButton, PageHeader, Stat, TableWrap, Td, Th,
@@ -28,10 +28,10 @@ export default async function CreditPage({
 }: {
   searchParams: Promise<{ date?: string }>
 }) {
-  await requireBackOffice()
+  const session = await requireBackOffice()
   const t = await getT()
   const supabase = await createClient()
-  const date = (await searchParams).date || todayIST()
+  const date = (await searchParams).date || pumpToday(session)
 
   const { data } = await supabase
     .from('credit_sales')

@@ -33,6 +33,8 @@ export async function updateStation(
       pincode: text(data, 'pincode'),
       gstin: text(data, 'gstin'),
       phone: text(data, 'phone'),
+      day_starts_at: String(data.get('day_starts_at') ?? '') || '07:00',
+      night_starts_at: String(data.get('night_starts_at') ?? '') || '19:00',
       invoice_prefix: String(data.get('invoice_prefix') ?? 'INV').trim() || 'INV',
     })
     .eq('id', String(data.get('id')))

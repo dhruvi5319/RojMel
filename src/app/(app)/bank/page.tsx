@@ -1,7 +1,7 @@
-import { requireBackOffice } from '@/lib/auth'
+import { requireBackOffice , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, money, todayIST } from '@/lib/format'
+import {formatDate, money} from '@/lib/format'
 import type { BankDeposit, CashPosition, Profile } from '@/lib/database.types'
 import { Card, Empty, PageHeader, Stat, TableWrap, Td, Th } from '@/components/ui'
 import { DeleteButton } from '@/components/DeleteButton'
@@ -17,10 +17,11 @@ interface Row extends BankDeposit {
 }
 
 export default async function BankPage() {
-  const { profile } = await requireBackOffice()
+  const session = await requireBackOffice()
+  const { profile } = session
   const t = await getT()
   const supabase = await createClient()
-  const today = todayIST()
+  const today = pumpToday(session)
 
   const [depositsRes, cashRes, peopleRes] = await Promise.all([
     supabase

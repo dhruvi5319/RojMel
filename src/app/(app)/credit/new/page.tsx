@@ -1,7 +1,6 @@
-import { requireBackOffice } from '@/lib/auth'
+import { requireBackOffice , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { todayIST } from '@/lib/format'
 import type {
   CustomerBalance, FuelType, NozzleState, Shift, Staff, Vehicle,
 } from '@/lib/database.types'
@@ -15,9 +14,9 @@ export default async function NewCreditSlipPage({
 }: {
   searchParams: Promise<{ customer?: string; date?: string }>
 }) {
-  await requireBackOffice()
+  const session = await requireBackOffice()
   const sp = await searchParams
-  const date = sp.date || todayIST()
+  const date = sp.date || pumpToday(session)
   const t = await getT()
   const supabase = await createClient()
 

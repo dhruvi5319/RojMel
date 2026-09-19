@@ -13,7 +13,7 @@ import type {
 } from '@/lib/database.types'
 import { LanguageSeg } from '@/components/AppNav'
 import { Alert, Badge, Button, Card, Field, NumberInput, Select, Input } from '@/components/ui'
-import { shiftHours, shiftLabel } from '@/lib/shifts'
+import { shiftHours, shiftLabel, type ShiftHours } from '@/lib/shifts'
 import {
   addFillerToShift, counterSlip, ensureShift, finishShift, removeFillerFromShift,
   reopenShift as reopenShiftAction, saveMeterReading,
@@ -41,6 +41,7 @@ export function CounterApp({
   role,
   today,
   shiftNow,
+  hours,
   staff,
   nozzles,
   fuels,
@@ -54,8 +55,10 @@ export function CounterApp({
   stationName: string
   role: UserRole
   today: string
-  /** the shift the clock says is running, and its hours */
+  /** the shift the clock says is running */
   shiftNow: { name: string; order: number }
+  /** when this pump changes over, which is a setting and not a constant */
+  hours: ShiftHours
   staff: Staff[]
   nozzles: NozzleState[]
   fuels: FuelType[]
@@ -287,7 +290,7 @@ export function CounterApp({
             <h1 className="mb-1 text-2xl font-semibold">
               {shiftLabel(t, shiftNow.name)}
               <span className="ml-3 align-middle text-[14px] font-normal text-neutral-600">
-                {shiftHours(shiftNow.name)}
+                {shiftHours(shiftNow.name, hours)}
               </span>
             </h1>
             <p className="mb-4 text-[13px] text-neutral-600">{formatDateLong(today)}</p>

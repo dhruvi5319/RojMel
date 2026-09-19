@@ -1,5 +1,5 @@
 import { Fuel } from 'lucide-react'
-import { requireBackOffice } from '@/lib/auth'
+import { pumpToday, requireBackOffice } from '@/lib/auth'
 import { getT } from '@/lib/i18n/server'
 import { DateStepper, LanguageSeg, PillBar, TabBar } from '@/components/AppNav'
 import { SignOutButton } from '@/components/SignOutButton'
@@ -10,7 +10,8 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode
 }) {
-  const { profile, station } = await requireBackOffice()
+  const session = await requireBackOffice()
+  const { profile, station } = session
   const t = await getT()
 
   const initial = profile.full_name.trim().charAt(0).toUpperCase() || '·'
@@ -35,7 +36,7 @@ export default async function AppLayout({
           </div>
 
           <div className="ml-auto flex items-center gap-2.5">
-            <DateStepper />
+            <DateStepper today={pumpToday(session)} />
             <span className="hidden sm:inline">
               <Badge tone="accent">{t(`role.${profile.role}`)}</Badge>
             </span>

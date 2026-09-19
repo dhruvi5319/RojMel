@@ -49,12 +49,18 @@ A form still sitting open with its fields full reads as "nothing happened",
 which is the one thing it must not say. `stayOpen` opts out, for a form that is
 meant to be used again straight away.
 
-**The shift has hours, and the clock decides which one.** The day runs 7am to
-7pm and the night 7pm to 7am (`SHIFTS` in `src/lib/shifts.ts`). The counter
-never asks which shift it is — it reads the clock — and everything written on
-the device is tagged to that shift. The office still sees both on `/shifts`.
+**The shift has hours, and they are the pump's own setting.** 7am and 7pm are
+only what a new pump starts with: `stations.day_starts_at` and
+`night_starts_at` hold them and the owner edits them under Settings → Pump
+details. `pump_day()` and `pump_shift()` read those columns, so RLS, the
+`business_date` defaults and every screen move together — a setting that only
+changed one of them would be a bug. In TS the hours come off
+`session.station`, `pumpToday(session)` is the dated default on every page,
+and the two client components that need it are handed it as a prop. The
+counter never asks which shift it is: it reads the clock. The office still
+sees both on `/shifts`.
 
-**The pump's working day rolls at 7am, not at midnight.** At 2am the forecourt
+**The pump's working day rolls when the day shift starts, not at midnight.** At 2am the forecourt
 is still working the shift that started last evening, and what it sells belongs
 to that day's book; without this a slip written at 2am lands on tomorrow and
 splits one night's takings across two days so neither tallies. `pump_day()` in

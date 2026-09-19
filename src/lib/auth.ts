@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { businessDateAt } from '@/lib/shifts'
 import type { Profile, Station } from '@/lib/database.types'
 
 export interface Session {
@@ -93,4 +94,15 @@ export async function requireOwner(): Promise<Session> {
 
 export function isOwner(session: Session) {
   return session.profile.role === 'owner'
+}
+
+/**
+ * The day this pump is working, by its own shift hours.
+ *
+ * Every dated page defaults to this rather than to the calendar date, and
+ * pump_day() applies the same rule in SQL. Taking it off the session means a
+ * pump that hands over at 8 gets a day that rolls at 8, everywhere at once.
+ */
+export function pumpToday(session: Session): string {
+  return businessDateAt(new Date(), session.station)
 }

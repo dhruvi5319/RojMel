@@ -6,69 +6,83 @@ import type { DictKey } from '@/lib/i18n/dict'
  * counter device and every slip form must offer the same two — a third name
  * typed on one screen would be a shift the money log could never reconcile.
  */
-export const SHIFTS: {
-  name: string
-  key: DictKey
-  order: number
-  /** IST hour it starts, inclusive */
-  from: number
-  /** IST hour it ends, exclusive */
-  to: number
-}[] = [
-  { name: 'Day', key: 'shift.day', order: 1, from: 7, to: 19 },
-  { name: 'Night', key: 'shift.night', order: 2, from: 19, to: 7 },
+export const SHIFTS: { name: string; key: DictKey; order: number }[] = [
+  { name: 'Day', key: 'shift.day', order: 1 },
+  { name: 'Night', key: 'shift.night', order: 2 },
 ]
 
 /**
- * The pump's working day starts when the day shift does.
- *
- * This matters more than it looks. The night shift runs past midnight, so at
- * 2am the people on the forecourt are still working the shift that started
- * last evening — and what they sell belongs to that day's book, not to the
- * calendar date the clock has just rolled over to. Without this, a slip
- * written at 2am would land on tomorrow and split one night's takings across
- * two days, so neither would tally.
+ * When the shifts change over. The pump's own, kept on the station and
+ * editable under Settings — 7am and 7pm are only what a new pump starts with.
+ * `pump_day()` and `pump_shift()` read the same two columns, so a screen
+ * cannot disagree with a policy about which shift somebody is standing in.
  */
-export const DAY_STARTS_AT = SHIFTS[0].from
+export interface ShiftHours {
+  day_starts_at: string
+  night_starts_at: string
+}
 
-/** The hour of the day in India, whatever the device's own clock is set to. */
-function istHour(at: Date): number {
-  return Number(
-    at.toLocaleString('en-GB', {
+export const DEFAULT_HOURS: ShiftHours = {
+  day_starts_at: '07:00',
+  night_starts_at: '19:00',
+}
+
+/** '07:00:00' or '07:00' -> minutes since midnight. */
+function minutes(clock: string): number {
+  const [h, m] = clock.split(':')
+  return Number(h) * 60 + Number(m ?? 0)
+}
+
+/** Minutes since midnight in India, whatever the device's own clock says. */
+function istMinutes(at: Date): number {
+  const [h, m] = at
+    .toLocaleTimeString('en-GB', {
       timeZone: 'Asia/Kolkata',
-      hour: '2-digit',
       hour12: false,
-    }),
-  )
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    .split(':')
+  return Number(h) * 60 + Number(m)
 }
 
 /** The shift being worked right now — the clock knows, so nobody is asked. */
-export function shiftAt(at: Date = new Date()) {
-  const hour = istHour(at)
-  return hour >= DAY_STARTS_AT && hour < SHIFTS[1].from ? SHIFTS[0] : SHIFTS[1]
+export function shiftAt(at: Date = new Date(), hours: ShiftHours = DEFAULT_HOURS) {
+  const now = istMinutes(at)
+  return now >= minutes(hours.day_starts_at) && now < minutes(hours.night_starts_at)
+    ? SHIFTS[0]
+    : SHIFTS[1]
 }
 
 /**
- * The business date the pump is working, which rolls at 7am rather than at
- * midnight. Before 7am the night shift is still running, and it belongs to
- * the day it started.
+ * The business date the pump is working. It rolls when the day shift takes
+ * over rather than at midnight: before then the night shift is still running,
+ * and what it sells belongs to the day it started. `pump_day()` is the same
+ * rule in SQL and the two must agree.
  */
-export function businessDateAt(at: Date = new Date()): string {
+export function businessDateAt(
+  at: Date = new Date(),
+  hours: ShiftHours = DEFAULT_HOURS,
+): string {
   const ist = at.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
-  if (istHour(at) >= DAY_STARTS_AT) return ist
+  if (istMinutes(at) >= minutes(hours.day_starts_at)) return ist
 
   const d = new Date(`${ist}T12:00:00Z`)
   d.setUTCDate(d.getUTCDate() - 1)
   return d.toISOString().slice(0, 10)
 }
 
-/** '7am to 7pm', for a screen that should say when the shift runs. */
-export function shiftHours(name: string): string | null {
-  const s = SHIFTS.find((x) => x.name === name)
-  if (!s) return null
-  const clock = (h: number) =>
-    h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`
-  return `${clock(s.from)} – ${clock(s.to)}`
+/** '7am – 7pm', for a screen that should say when the shift runs. */
+export function shiftHours(name: string, hours: ShiftHours = DEFAULT_HOURS): string {
+  const clock = (c: string) => {
+    const [h, m] = c.split(':').map(Number)
+    const suffix = h < 12 ? 'am' : 'pm'
+    const hour = h % 12 === 0 ? 12 : h % 12
+    return m ? `${hour}.${String(m).padStart(2, '0')}${suffix}` : `${hour}${suffix}`
+  }
+  return name === SHIFTS[0].name
+    ? `${clock(hours.day_starts_at)} – ${clock(hours.night_starts_at)}`
+    : `${clock(hours.night_starts_at)} – ${clock(hours.day_starts_at)}`
 }
 
 /**

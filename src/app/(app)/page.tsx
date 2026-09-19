@@ -2,10 +2,10 @@ import Link from 'next/link'
 import {
   AlertTriangle, Banknote, Check, CircleCheckBig, Fuel, Receipt, Truck,
 } from 'lucide-react'
-import { requireBackOffice, isOwner } from '@/lib/auth'
+import { requireBackOffice, isOwner , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDateLong, litres, money, moneyWhole, todayIST } from '@/lib/format'
+import {formatDateLong, litres, money, moneyWhole} from '@/lib/format'
 import type {
   CustomerBalance, DaySummary, FuelRate, TankStock,
 } from '@/lib/database.types'
@@ -22,7 +22,7 @@ export default async function TheDay({
   const session = await requireBackOffice()
   const t = await getT()
   const supabase = await createClient()
-  const date = (await searchParams).date || todayIST()
+  const date = (await searchParams).date || pumpToday(session)
 
   const [summaryRes, slipsRes, balancesRes, stockRes, nozzleRes, ratesRes] =
     await Promise.all([

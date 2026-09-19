@@ -1,7 +1,7 @@
-import { isOwner, requireBackOffice } from '@/lib/auth'
+import { isOwner, requireBackOffice , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, money, monthEnd, monthStart, todayIST } from '@/lib/format'
+import {formatDate, money, monthEnd, monthStart} from '@/lib/format'
 import type {
   CngState, CngSupply, CngSupplyCost, FuelType, LastTax, SalesByFuel, Staff,
 } from '@/lib/database.types'
@@ -36,7 +36,7 @@ export default async function CngPage({
   const owner = isOwner(session)
   const t = await getT()
   const supabase = await createClient()
-  const today = todayIST()
+  const today = pumpToday(session)
   const month = (await searchParams).month || today.slice(0, 7)
   const from = monthStart(`${month}-01`)
   const to = monthEnd(`${month}-01`)

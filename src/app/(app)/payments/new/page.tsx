@@ -1,7 +1,6 @@
-import { requireBackOffice } from '@/lib/auth'
+import { requireBackOffice , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { todayIST } from '@/lib/format'
 import type { CustomerBalance, Invoice } from '@/lib/database.types'
 import { Card, LinkButton, PageHeader } from '@/components/ui'
 import { PaymentForm } from './PaymentForm'
@@ -13,7 +12,7 @@ export default async function NewPaymentPage({
 }: {
   searchParams: Promise<{ customer?: string; invoice?: string }>
 }) {
-  await requireBackOffice()
+  const session = await requireBackOffice()
   const sp = await searchParams
   const t = await getT()
   const supabase = await createClient()
@@ -47,7 +46,7 @@ export default async function NewPaymentPage({
       />
       <Card className="p-5">
         <PaymentForm
-          today={todayIST()}
+          today={pumpToday(session)}
           customers={(customersRes.data ?? []) as CustomerBalance[]}
           invoices={invoices.map((i) => ({
             id: i.id,

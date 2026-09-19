@@ -1,7 +1,7 @@
-import { requireBackOffice } from '@/lib/auth'
+import { requireBackOffice , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, money, monthEnd, todayIST } from '@/lib/format'
+import {formatDate, money, monthEnd} from '@/lib/format'
 import type { Expense } from '@/lib/database.types'
 import { Card, Empty, PageHeader, Stat, TableWrap, Td, Th } from '@/components/ui'
 import { DeleteButton } from '@/components/DeleteButton'
@@ -18,10 +18,10 @@ export default async function ExpensesPage({
 }: {
   searchParams: Promise<{ month?: string }>
 }) {
-  await requireBackOffice()
+  const session = await requireBackOffice()
   const t = await getT()
   const supabase = await createClient()
-  const today = todayIST()
+  const today = pumpToday(session)
   const month = (await searchParams).month || today.slice(0, 7)
 
   const { data } = await supabase

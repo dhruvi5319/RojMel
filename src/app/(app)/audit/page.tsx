@@ -1,7 +1,7 @@
-import { requireOwner } from '@/lib/auth'
+import { requireOwner , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDate, formatTime, todayIST } from '@/lib/format'
+import {formatDate, formatTime} from '@/lib/format'
 import {
   Badge, Card, Empty, PageHeader, Stat, TableWrap, Td, Th, rowClass,
 } from '@/components/ui'
@@ -97,10 +97,10 @@ export default async function AuditPage({
 }) {
   // audit_log has an owner-only select policy; requireOwner keeps a manager
   // from reaching a page that would only ever render empty for her.
-  await requireOwner()
+  const session = await requireOwner()
   const t = await getT()
   const supabase = await createClient()
-  const today = todayIST()
+  const today = pumpToday(session)
 
   const sp = await searchParams
   let query = supabase

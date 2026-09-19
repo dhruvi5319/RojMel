@@ -18,8 +18,8 @@ export default async function CounterPage() {
    * and what it sells belongs to that day's book.
    */
   const now = new Date()
-  const shiftNow = shiftAt(now)
-  const today = businessDateAt(now)
+  const shiftNow = shiftAt(now, station)
+  const today = businessDateAt(now, station)
 
   const [staffRes, nozzlesRes, fuelsRes, customersRes, vehiclesRes, shiftsRes] =
     await Promise.all([
@@ -67,6 +67,10 @@ export default async function CounterPage() {
       role={profile.role}
       today={today}
       shiftNow={{ name: shiftNow.name, order: shiftNow.order }}
+      hours={{
+        day_starts_at: station.day_starts_at,
+        night_starts_at: station.night_starts_at,
+      }}
       staff={(staffRes.data ?? []) as Staff[]}
       nozzles={(nozzlesRes.data ?? []) as NozzleState[]}
       fuels={(fuelsRes.data ?? []) as FuelType[]}

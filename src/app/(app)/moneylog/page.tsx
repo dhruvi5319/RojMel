@@ -1,9 +1,9 @@
 import Link from 'next/link'
 import { CircleCheckBig, TriangleAlert } from 'lucide-react'
-import { requireBackOffice } from '@/lib/auth'
+import { requireBackOffice , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getLang, getT } from '@/lib/i18n/server'
-import { formatDateLong, money, quantity, todayIST } from '@/lib/format'
+import {formatDateLong, money, quantity} from '@/lib/format'
 import { shiftLabel } from '@/lib/shifts'
 import type { ShiftFuelSale, ShiftMoney } from '@/lib/database.types'
 import {
@@ -28,11 +28,11 @@ export default async function MoneyLogPage({
 }: {
   searchParams: Promise<{ date?: string }>
 }) {
-  await requireBackOffice()
+  const session = await requireBackOffice()
   const t = await getT()
   const lang = await getLang()
   const supabase = await createClient()
-  const date = (await searchParams).date || todayIST()
+  const date = (await searchParams).date || pumpToday(session)
 
   const [moneyRes, fuelRes, byFillerRes, loose] = await Promise.all([
     supabase.from('v_shift_money').select('*').eq('business_date', date).order('sort_order'),

@@ -1,9 +1,9 @@
 import Link from 'next/link'
 import { CheckCircle2, Lock } from 'lucide-react'
-import { isOwner, requireBackOffice } from '@/lib/auth'
+import { isOwner, requireBackOffice , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
-import { formatDateLong, litres, money, todayIST } from '@/lib/format'
+import {formatDateLong, litres, money} from '@/lib/format'
 import type { DayClosing, DaySummary } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th,
@@ -22,7 +22,7 @@ export default async function DayPage({
   const owner = isOwner(session)
   const t = await getT()
   const supabase = await createClient()
-  const date = (await searchParams).date || todayIST()
+  const date = (await searchParams).date || pumpToday(session)
 
   const [summaryRes, closingRes, recentRes] = await Promise.all([
     supabase.rpc('day_summary', { p_date: date }),

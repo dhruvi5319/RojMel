@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useT } from '@/lib/i18n/client'
-import { moneyCompact, todayIST } from '@/lib/format'
+import { moneyCompact } from '@/lib/format'
 import type { DayBookEntry } from '@/lib/database.types'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -18,14 +18,17 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 export function Calendar({
   month,
   entries,
+  today,
 }: {
   month: string
   entries: DayBookEntry[]
+  /** the pump's own day, which rolls with the day shift rather than midnight */
+  today: string
 }) {
   const t = useT()
   const router = useRouter()
   const params = useSearchParams()
-  const today = todayIST()
+
 
   const byDate = new Map(entries.map((e) => [e.business_date, e]))
   const [year, mon] = month.split('-').map(Number)

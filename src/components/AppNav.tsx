@@ -7,7 +7,7 @@ import { useT } from '@/lib/i18n/client'
 import { useLang } from '@/lib/i18n/client'
 import { LANGS } from '@/lib/i18n/dict'
 import { setLanguage } from '@/app/actions/language'
-import { addDays, todayIST } from '@/lib/format'
+import { addDays } from '@/lib/format'
 import { TABS, isDatedPath, tabForPath, visibleItems } from '@/lib/nav'
 import type { UserRole } from '@/lib/database.types'
 
@@ -78,11 +78,10 @@ export function PillBar({ role }: { role: UserRole }) {
 
 /* ── one date governs the whole day ─────────────────────────────────────── */
 
-export function DateStepper() {
+export function DateStepper({ today }: { today: string }) {
   const pathname = usePathname()
   const params = useSearchParams()
   const router = useRouter()
-  const today = todayIST()
   const date = params.get('date') || today
 
   if (!isDatedPath(pathname)) return null

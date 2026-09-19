@@ -59,6 +59,26 @@ select assert_eq((select book_stock_litres from v_tank_stock where name = 'Tank 
 select assert_eq((select count(*) from fuel_purchase_costs), 0::bigint, 'manager sees no purchase costs');
 select assert_eq((select count(*) from fuel_purchases), 2::bigint, 'manager still sees the delivery itself');
 
+-- ------------------------------ the changeover is the pump's own setting -----
+-- 7am is only what a new pump starts with. Move it and the working day moves
+-- with it, because pump_day() reads the station rather than a constant.
+--
+-- As the owner: the pump's details are his, and a manager's update here would
+-- be refused by RLS without raising — which is exactly how this assertion
+-- failed the first time it was written.
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+update stations set day_starts_at = '08:00', night_starts_at = '20:00'
+ where id = '11111111-1111-1111-1111-111111111111';
+select assert_eq(pump_day('2026-09-20 07:30+05:30'::timestamptz), '2026-09-19'::date,
+                 '7.30am is still the night before, once the pump hands over at 8');
+select assert_eq(pump_shift('2026-09-20 07:30+05:30'::timestamptz), 'Night',
+                 'and the shift reads the same setting');
+select assert_eq(pump_shift('2026-09-20 08:00+05:30'::timestamptz), 'Day',
+                 'the day shift starts when the pump says it does');
+update stations set day_starts_at = '07:00', night_starts_at = '19:00'
+ where id = '11111111-1111-1111-1111-111111111111';
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
 -- --------------------------------------- the pump's day rolls at 7am ---------
 -- The night shift runs 7pm to 7am, so at 2am the forecourt is still working
 -- the shift that started last evening and what it sells belongs to that day's

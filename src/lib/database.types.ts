@@ -14,6 +14,10 @@ export type InvoiceStatus = 'draft' | 'issued' | 'partly_paid' | 'paid' | 'cance
 export type StaffPaymentType = 'salary' | 'advance' | 'bonus' | 'deduction'
 
 export interface Station {
+  /** when the day shift takes over — and so when the pump's day rolls */
+  day_starts_at: string
+  /** when the night shift takes over */
+  night_starts_at: string
   id: string
   name: string
   legal_name: string | null
