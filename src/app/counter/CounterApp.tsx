@@ -13,7 +13,7 @@ import type {
 } from '@/lib/database.types'
 import { LanguageSeg } from '@/components/AppNav'
 import { Alert, Badge, Button, Card, Field, NumberInput, Select, Input } from '@/components/ui'
-import { SHIFTS, shiftLabel } from '@/lib/shifts'
+import { shiftHours, shiftLabel } from '@/lib/shifts'
 import {
   closeMyShift, counterReading, counterSlip, ensureShift, reopenMyShift,
 } from './actions'
@@ -32,6 +32,7 @@ export function CounterApp({
   stationName,
   role,
   today,
+  shiftNow,
   staff,
   nozzles,
   fuels,
@@ -42,6 +43,8 @@ export function CounterApp({
   stationName: string
   role: UserRole
   today: string
+  /** the shift the clock says is running, and its hours */
+  shiftNow: { name: string; order: number }
   staff: Staff[]
   nozzles: NozzleState[]
   fuels: FuelType[]
@@ -54,7 +57,18 @@ export function CounterApp({
   const router = useRouter()
   const [pending, startTransition] = useTransition()
 
-  const [view, setView] = useState<View>('pick')
+  /*
+   * The device opens on the shift, not on a name.
+   *
+   * A shift has several fillers and any one of them notes the meter, so
+   * asking "who are you?" before the device will show anything is asking a
+   * question that mostly does not matter. It matters for the two things that
+   * belong to a person — the slip they wrote and the cash they hand over —
+   * and it is asked there, at the moment it counts.
+   */
+  const [view, setView] = useState<View>('menu')
+  /** Where to go once somebody has said who they are. */
+  const [after, setAfter] = useState<View>('menu')
   const [who, setWho] = useState<Staff | null>(null)
   const [pin, setPin] = useState('')
   const [pinError, setPinError] = useState(false)
@@ -70,20 +84,22 @@ export function CounterApp({
       return
     }
     setWho(member)
-    setView('menu')
+    setView(after)
+  }
+
+  /** For the two things that belong to a person rather than to the shift. */
+  function asSomebody(target: View) {
+    setError(null)
+    setAfter(target)
+    setView(who ? target : 'pick')
   }
 
   /*
-   * The shift this filler is on. A person works one shift, so this is the
-   * open one — and once they have handed it in, still theirs to correct until
-   * the office approves it. Everything they write is tagged to it without
-   * being asked, because asking again is a chance to answer wrongly.
+   * The shift being worked, which the clock already knows: the day runs 7am
+   * to 7pm and the night 7pm to 7am. Nobody is asked to choose it, and
+   * everything written on this device is tagged to it.
    */
-  const myShift =
-    shifts.find((sh) => sh.status === 'open') ??
-    [...shifts]
-      .filter((sh) => sh.status !== 'approved')
-      .sort((a, b) => b.sort_order - a.sort_order)[0]
+  const myShift = shifts.find((sh) => sh.name === shiftNow.name)
 
   /* The shift's three acts. */
   function openShift(name: string, order: number) {
@@ -116,7 +132,7 @@ export function CounterApp({
   function confirmPin() {
     if (who && pin === who.pin) {
       setPinError(false)
-      setView('menu')
+      setView(after)
     } else {
       setPinError(true)
     }
@@ -216,7 +232,12 @@ export function CounterApp({
             </div>
           ) : (
             <div>
-              <h1 className="mb-5 text-2xl font-semibold">{t('counter.whoAreYou')}</h1>
+              <h1 className="mb-1 text-2xl font-semibold">
+                {after === 'slip' ? t('counter.whoIsServing') : t('counter.whoAreYou')}
+              </h1>
+              <p className="mb-5 text-[13.5px] text-neutral-600">
+                {t('counter.whoIsServingHint')}
+              </p>
               {staff.length === 0 ? (
                 <Alert tone="accent">
                   No staff have been added yet. Add them under Staff first.
@@ -246,15 +267,15 @@ export function CounterApp({
         {view === 'menu' ? (
           <div>
             <h1 className="mb-5 text-2xl font-semibold">
-              {t('common.today')} — {nameOf(who!)}
+              {shiftLabel(t, shiftNow.name)}
+              <span className="ml-3 align-middle text-[14px] font-normal text-neutral-600">
+                {shiftHours(shiftNow.name)}
+              </span>
             </h1>
 
-            {/* The shift is the frame round everything else a filler does, so
-                it is the first thing on the screen with its one action on it.
-                It used to be a tile called "My shift", two taps from being
-                able to start or finish one. */}
             <ShiftCard
               shift={myShift}
+              running={shiftNow}
               pending={pending}
               onOpen={openShift}
               onClose={closeShift}
@@ -268,6 +289,8 @@ export function CounterApp({
             ) : null}
 
             <div className="grid gap-3 sm:grid-cols-2">
+              {/* The meter belongs to the shift: any one of its fillers reads
+                  it, so this does not ask who is pressing it. */}
               <BigButton
                 icon={Gauge}
                 label={t('counter.enterReading')}
@@ -277,14 +300,12 @@ export function CounterApp({
                   setView('reading')
                 }}
               />
+              {/* A slip belongs to whoever served the lorry, so this one asks. */}
               <BigButton
                 icon={Truck}
                 label={t('counter.newSlip')}
                 disabled={!myShift}
-                onClick={() => {
-                  setError(null)
-                  setView('slip')
-                }}
+                onClick={() => asSomebody('slip')}
               />
             </div>
 
@@ -745,12 +766,15 @@ function ReadingForm({
  */
 function ShiftCard({
   shift,
+  running,
   pending,
   onOpen,
   onClose,
   onReopen,
 }: {
   shift: Shift | undefined
+  /** what the clock says is running, for when nobody has started it yet */
+  running: { name: string; order: number }
   pending: boolean
   onOpen: (name: string, order: number) => void
   onClose: (id: string) => void
@@ -758,23 +782,27 @@ function ShiftCard({
 }) {
   const t = useT()
 
-  // Nobody has started one yet: the one choice they make all day.
+  // Nobody has started it. There is nothing to choose — the clock already
+  // says which shift this is — so this is one button, not a question.
   if (!shift) {
     return (
       <div className="mb-4 rounded-[var(--radius-card)] bg-surface p-5">
-        <div className="text-[17px] font-semibold">{t('counter.whichShift')}</div>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          {SHIFTS.map((o) => (
-            <Button
-              key={o.name}
-              size="lg"
-              variant="secondary"
-              disabled={pending}
-              onClick={() => onOpen(o.name, o.order)}
-            >
-              {t(o.key)}
-            </Button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[17px] font-semibold">
+              {shiftLabel(t, running.name)}
+            </div>
+            <div className="mt-0.5 text-[13px] text-neutral-600">
+              {t('counter.shiftNotOpen')}
+            </div>
+          </div>
+          <Button
+            size="md"
+            disabled={pending}
+            onClick={() => onOpen(running.name, running.order)}
+          >
+            {t('counter.openMyShift')}
+          </Button>
         </div>
       </div>
     )

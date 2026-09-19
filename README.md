@@ -231,10 +231,17 @@ Five kinds of login, and **fillers do not have one**.
 | Filler | — | taps their name on the counter device |
 
 The counter device is a login *for the device*, not for a person: sign it in
-once on the phone or tablet at the nozzle and leave it signed in. Whoever is on
-duty taps their own name on the "Who is on duty?" screen, and everything they
-write — meter readings, udhaar slips, their cash, opening and closing their
-shift — is recorded against that name. Give a filler a 4-digit PIN under
+once on the phone or tablet at the nozzle and leave it signed in. It opens on
+the shift being worked — the day runs 7am to 7pm, the night 7pm to 7am, and the
+clock decides which, so nobody is asked. A shift has several fillers and any one
+of them reads the meter, so the device does not ask who is holding it before it
+will show anything. It asks only where the answer matters: an udhaar slip goes
+against whoever served the lorry.
+
+The pump's working day rolls at **7am**, with the day shift. At 2am the people
+on the forecourt are still working last evening's night shift, and what they
+sell belongs to that day's book rather than to the date the clock has just
+rolled over to. Give a filler a 4-digit PIN under
 **Staff** if you want the name to be confirmed before it is used; without one it
 is a single tap, which is usually what you want with a queue at the pump.
 

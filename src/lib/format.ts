@@ -4,6 +4,8 @@
  * every figure that decides money is computed in Postgres.
  */
 
+import { businessDateAt } from '@/lib/shifts'
+
 const inr = new Intl.NumberFormat('en-IN', {
   style: 'currency',
   currency: 'INR',
@@ -67,7 +69,22 @@ export function moneyCompact(value: number | null | undefined): string {
 }
 
 /** The business date the pump is trading in, regardless of device timezone. */
+/**
+ * The day the pump is working — the one idea of "today" in this app.
+ *
+ * It rolls at 7am with the day shift, not at midnight, because the night shift
+ * runs 7pm to 7am: at 2am the forecourt is still working the shift that
+ * started last evening. If the office called that "tomorrow" while the counter
+ * called it "today", a manager opening the app at 2am would be shown an empty
+ * day while the pump was still trading. `pump_day()` is the same rule in SQL.
+ */
 export function todayIST(): string {
+  return businessDateAt()
+}
+
+/** The calendar date in India, for anything that means the date and not the
+ *  pump's working day. */
+export function calendarDateIST(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 }
 

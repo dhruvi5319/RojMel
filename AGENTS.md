@@ -49,14 +49,27 @@ A form still sitting open with its fields full reads as "nothing happened",
 which is the one thing it must not say. `stayOpen` opts out, for a form that is
 meant to be used again straight away.
 
-**A filler is on one shift, and the counter screen shows only that one.** A
-person works the day or the night, not both, so the counter asks "Which shift
-are you on?" once and from then on it is simply *their* shift: the card at the
-top of the menu with its one action (finish · reopen), and nothing writable
-until they have answered. Every reading and every slip is tagged to it without
-being asked again — asking twice is only a chance to answer wrongly — and there
-is no way from their screen into the other shift, because closing a colleague's
-shift is not a filler's to do. The office still sees both on `/shifts`.
+**The shift has hours, and the clock decides which one.** The day runs 7am to
+7pm and the night 7pm to 7am (`SHIFTS` in `src/lib/shifts.ts`). The counter
+never asks which shift it is — it reads the clock — and everything written on
+the device is tagged to that shift. The office still sees both on `/shifts`.
+
+**The pump's working day rolls at 7am, not at midnight.** At 2am the forecourt
+is still working the shift that started last evening, and what it sells belongs
+to that day's book; without this a slip written at 2am lands on tomorrow and
+splits one night's takings across two days so neither tallies. `pump_day()` in
+SQL and `businessDateAt()` in TS, and they must agree. The counter's RLS asks
+`pump_day()`, not `current_date` — pinning it to the calendar meant the device
+could see its own shift and not write to it between midnight and 7am, and a
+blocked insert says nothing. `credit_sales.business_date` and
+`expenses.business_date` default to it too.
+
+**A shift has several fillers, and the meter belongs to the shift.** Any one of
+them reads it, so the counter does not ask who is holding the device before it
+will show anything. It asks only where the answer matters: an udhaar slip goes
+against whoever served the lorry, so that form asks "Who is serving?" at the
+moment it counts. A filler works one shift and there is no way from their
+screen into the other one.
 
 **The shift is the filler's until the office agrees it.** A filler opens and
 closes their own shift on the counter (`close_shift`, `reopen_shift`) — they are

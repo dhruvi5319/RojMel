@@ -59,6 +59,20 @@ select assert_eq((select book_stock_litres from v_tank_stock where name = 'Tank 
 select assert_eq((select count(*) from fuel_purchase_costs), 0::bigint, 'manager sees no purchase costs');
 select assert_eq((select count(*) from fuel_purchases), 2::bigint, 'manager still sees the delivery itself');
 
+-- --------------------------------------- the pump's day rolls at 7am ---------
+-- The night shift runs 7pm to 7am, so at 2am the forecourt is still working
+-- the shift that started last evening and what it sells belongs to that day's
+-- book. Without this a slip written at 2am lands on tomorrow and splits one
+-- night's takings across two days, so neither tallies.
+select assert_eq(pump_day('2026-09-20 02:30+05:30'::timestamptz), '2026-09-19'::date,
+                 '2.30am belongs to the day before');
+select assert_eq(pump_day('2026-09-20 06:59+05:30'::timestamptz), '2026-09-19'::date,
+                 'and so does 6.59am, the last minute of the night shift');
+select assert_eq(pump_day('2026-09-20 07:00+05:30'::timestamptz), '2026-09-20'::date,
+                 'the day turns over at 7am, when the day shift starts');
+select assert_eq(pump_day('2026-09-20 23:30+05:30'::timestamptz), '2026-09-20'::date,
+                 'and the night shift before midnight is still that day');
+
 -- ------------------------------------------------ two shifts, day and night --
 -- The pump runs two, and a slip belongs to one of them: udhaar not on a shift
 -- makes that shift look short by exactly the amount written during it.

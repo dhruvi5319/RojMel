@@ -1049,14 +1049,18 @@ await login('counter@test.in')
 await check('counter: lands on its own screen', async () => {
   await page.goto(`${BASE}/expenses`)
   await page.waitForURL(/\/counter/, { timeout: 15000 })
-  if (!(await body()).includes('Who is on duty?')) throw new Error('no filler picker')
+  await page.waitForTimeout(600)
+  // It opens on the shift being worked, not on a question.
+  const t = await body()
+  if (!/Day shift|Night shift/.test(t)) throw new Error(`not the counter screen: ${t}`)
 })
 
 await check('counter: a filler writes an udhaar slip, on their shift', async () => {
-  await page.goto(`${BASE}/counter`)
-  await page.locator('button', { hasText: 'Ramesh' }).first().click()
-  await page.waitForTimeout(400)
+  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
+  await page.waitForTimeout(700)
   await page.locator('button', { hasText: 'Udhaar slip' }).first().click()
+  await page.waitForTimeout(600)
+  await page.locator('button', { hasText: 'Ramesh' }).first().click()
   await page.waitForTimeout(600)
 
   // The slip belongs to the shift this filler is on, and they said which
@@ -1081,49 +1085,59 @@ await check('counter: a filler writes an udhaar slip, on their shift', async () 
 
 // The filler starts and finishes their own shift, and may keep correcting it
 // until the office agrees the figures.
-await check('counter: a filler is on one shift, not both', async () => {
-  await page.goto(`${BASE}/counter`)
-  await page.locator('button', { hasText: 'Ramesh' }).first().click()
-  await page.waitForTimeout(700)
+await check('counter: the clock says which shift, nobody is asked', async () => {
+  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
+  await page.waitForTimeout(800)
 
-  // Starting and finishing must be on the menu, and there must be no way from
-  // here into the other shift: closing a colleague's shift is not a filler's
-  // to do.
+  // The device opens on the shift being worked. It does not ask who is
+  // holding it — a shift has several fillers and any one of them reads the
+  // meter — and it does not ask which shift, because the clock knows.
   const t2 = await body()
-  const act = page.locator(
-    'button:has-text("My shift is finished"), button:has-text("Reopen to fix something")',
-  )
-  const choose = page.locator('button').filter({ hasText: /^(Day|Night) shift$/ })
-
-  if ((await act.count()) === 0) {
-    // Nobody has started one: exactly two to choose from, and nothing writable
-    // until they do.
-    if (!/Which shift are you on/.test(t2)) {
-      throw new Error(`no shift and no way to start one: ${t2}`)
-    }
-    if ((await choose.count()) !== 2) {
-      throw new Error(`expected two shifts to choose from, got ${await choose.count()}`)
-    }
-    if ((await page.locator('button:has-text("Shift reading")[disabled]').count()) === 0) {
-      throw new Error('a filler could write a reading before saying which shift')
-    }
-    await choose.last().click()
-    await page.waitForTimeout(3000)
+  if (/Who are you|Which shift are you on/.test(t2)) {
+    throw new Error(`the device asked before showing anything: ${t2}`)
   }
-
-  // On a shift now, and only that one.
-  const t3 = await body()
-  const named = ['Day shift', 'Night shift'].filter((w) => t3.includes(w))
+  const named = ['Day shift', 'Night shift'].filter((w) => t2.includes(w))
   if (named.length !== 1) {
-    throw new Error(`a filler was shown ${named.length} shifts: ${named.join(', ')}`)
+    throw new Error(`expected one shift on the screen, got ${named.join(', ') || 'none'}`)
   }
-  if (/Both shifts/.test(t3)) throw new Error('a filler can reach the other shift')
+  if (!/\dam|\dpm/.test(t2)) throw new Error('the shift does not say what hours it runs')
+
+  // Start it if nobody has, then the meter must open without asking a name.
+  const start = page.locator('button', { hasText: 'Start my shift' })
+  if ((await start.count()) > 0) {
+    await start.first().click()
+    await page.waitForTimeout(3500)
+    if (!/Yours until you finish it|waiting for the office/.test(await body())) {
+      throw new Error(`starting the shift did nothing: ${await body()}`)
+    }
+  }
+
+  await page.locator('button', { hasText: 'Shift reading' }).first().click()
+  await page.waitForTimeout(900)
+  const t3 = await body()
+  if (/Who are you|Who is serving/.test(t3)) {
+    throw new Error('the meter reading asked who was pressing it')
+  }
+  if (!/Goes to/.test(t3)) throw new Error('the reading does not say which shift it lands on')
+})
+
+// A slip belongs to whoever served the lorry, so that one does ask.
+await check('counter: the slip asks who is serving', async () => {
+  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
+  await page.waitForTimeout(800)
+  await page.locator('button', { hasText: 'Udhaar slip' }).first().click()
+  await page.waitForTimeout(800)
+  if (!/Who is serving/.test(await body())) {
+    throw new Error('the slip did not ask who was serving')
+  }
+  await page.locator('button', { hasText: 'Ramesh' }).first().click()
+  await page.waitForTimeout(800)
+  if (!/Goes to/.test(await body())) throw new Error('the slip does not name its shift')
 })
 
 await check('counter: a filler closes their own shift', async () => {
-  await page.goto(`${BASE}/counter`)
-  await page.locator('button', { hasText: 'Ramesh' }).first().click()
-  await page.waitForTimeout(700)
+  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
+  await page.waitForTimeout(800)
 
   // A previous run may have left it handed in. Reopening is the filler's too,
   // so use it to get back to a shift they can close.

@@ -537,9 +537,15 @@ for (const table of ['expenses', 'bank_deposits', 'payments', 'invoices', 'fuel_
   assert(data?.length === 0, `counter sees no ${table}`, `saw ${data?.length} rows`)
 }
 
+// The counter writes to the day the pump is working, which rolls at 7am —
+// so before 7am that is yesterday's calendar date. Ask the database rather
+// than assuming the two are the same.
+const pumpDay = check('pump_day', await counter.rpc('pump_day'))
+assert(typeof pumpDay === 'string', "  the pump's working day", `got ${pumpDay}`)
+
 check('counter writes a slip',
   await counter.from('credit_sales').insert({
-    business_date: today, customer_id: customer.id,
+    business_date: pumpDay, customer_id: customer.id,
     fuel_type_id: d1.fuel_type_id, quantity: 50, sale_rate: 89.2, slip_number: 'S-002',
   }).select())
 {
