@@ -652,7 +652,18 @@ await check('shifts: CNG in kilograms, and cash from a filler', async () => {
   await page.waitForLoadState('networkidle')
   const t2 = await body()
   if (!t2.includes('100.00 kg')) throw new Error('CNG reading did not persist')
-  if (!t2.includes('7,967')) throw new Error("the filler's cash did not persist")
+
+  // Read it back out of the box it went into. Asserting on the page's
+  // formatted total only worked while every other filler's box was empty —
+  // the moment a second filler handed cash over, the total stopped being
+  // this number and the test failed for the wrong reason.
+  const kept = await page
+    .locator('[aria-label="Handover"] input[type=number]')
+    .first()
+    .inputValue()
+  if (Number(kept) !== 7967) {
+    throw new Error(`the filler's cash did not persist: the box holds "${kept}"`)
+  }
 })
 
 await check('day close: CNG and BPCL both show', async () => {
@@ -663,6 +674,27 @@ await check('day close: CNG and BPCL both show', async () => {
 })
 
 await check('money log: sold against how the money came', async () => {
+  // A fuel only appears on the money log if a meter says it left the pump, so
+  // this test makes its own sales rather than leaning on what an earlier run
+  // happened to leave behind.
+  await page.goto(`${BASE}/shifts`)
+  await page.locator('a', { hasText: 'Meter readings' }).first().click()
+  await page.waitForURL(/\/shifts\/[0-9a-f-]{36}/, { timeout: 20000 })
+  await page.waitForTimeout(700)
+
+  // Every nozzle and dispenser on the shift, petrol through CNG, so every
+  // fuel the pump sells has a meter that moved.
+  const opens = page.getByLabel('Opening')
+  const closes = page.getByLabel('Closing')
+  const count = await closes.count()
+  if (count === 0) throw new Error('the shift screen has no meters to read')
+  for (let i = 0; i < count; i++) {
+    const from = Number((await opens.nth(i).inputValue()) || 0)
+    await closes.nth(i).fill(String(from + 100))
+  }
+  await page.locator('button', { hasText: /^Save$/ }).first().click()
+  await page.waitForTimeout(3500)
+
   await page.goto(`${BASE}/moneylog`, { waitUntil: 'load' })
   await page.waitForTimeout(700)
   const t2 = await body()
@@ -1027,15 +1059,13 @@ await check('counter: a filler writes an udhaar slip, on their shift', async () 
   await page.locator('button', { hasText: 'Udhaar slip' }).first().click()
   await page.waitForTimeout(600)
 
-  // The udhaar written in front of a filler belongs to their half of the day,
-  // so the slip screen asks which — and offers only the two the pump runs.
+  // The slip belongs to the shift this filler is on, and they said which
+  // when they came on duty. Asking a second time is a chance to answer wrongly.
   const t2 = await body()
-  for (const w of ['Day shift', 'Night shift']) {
-    if (!t2.includes(w)) throw new Error(`the counter slip screen is missing "${w}"`)
+  if (/Which shift are you on/.test(t2)) {
+    throw new Error('the slip screen asks the shift a second time')
   }
-  if (/Morning|Evening/.test(t2)) throw new Error('the counter still offers three shifts')
-  await page.locator('button', { hasText: 'Night shift' }).first().click()
-  await page.waitForTimeout(200)
+  if (!/Goes to/.test(t2)) throw new Error('the slip does not say which shift it lands on')
 
   const sel = page.locator('select').first()
   const value = await sel.evaluate((el) => el.options[1]?.value)
@@ -1051,37 +1081,50 @@ await check('counter: a filler writes an udhaar slip, on their shift', async () 
 
 // The filler starts and finishes their own shift, and may keep correcting it
 // until the office agrees the figures.
-await check('counter: the shift is the first thing on the filler\'s screen', async () => {
+await check('counter: a filler is on one shift, not both', async () => {
   await page.goto(`${BASE}/counter`)
   await page.locator('button', { hasText: 'Ramesh' }).first().click()
   await page.waitForTimeout(700)
 
-  // Starting and finishing a shift must be on the menu, not behind a tile a
-  // filler has to know to press: the shift frames everything else they do.
+  // Starting and finishing must be on the menu, and there must be no way from
+  // here into the other shift: closing a colleague's shift is not a filler's
+  // to do.
   const t2 = await body()
-  if (!/Day shift|Night shift/.test(t2)) {
-    throw new Error('the menu does not say which shift is running')
-  }
   const act = page.locator(
-    'button:has-text("Start my shift"), button:has-text("My shift is finished"), button:has-text("Reopen to fix something")',
+    'button:has-text("My shift is finished"), button:has-text("Reopen to fix something")',
   )
+  const choose = page.locator('button').filter({ hasText: /^(Day|Night) shift$/ })
+
   if ((await act.count()) === 0) {
-    throw new Error(`no way to start or finish a shift from the menu: ${t2}`)
+    // Nobody has started one: exactly two to choose from, and nothing writable
+    // until they do.
+    if (!/Which shift are you on/.test(t2)) {
+      throw new Error(`no shift and no way to start one: ${t2}`)
+    }
+    if ((await choose.count()) !== 2) {
+      throw new Error(`expected two shifts to choose from, got ${await choose.count()}`)
+    }
+    if ((await page.locator('button:has-text("Shift reading")[disabled]').count()) === 0) {
+      throw new Error('a filler could write a reading before saying which shift')
+    }
+    await choose.last().click()
+    await page.waitForTimeout(3000)
   }
-  if (!t2.includes('Both shifts')) throw new Error('no way through to the other shift')
+
+  // On a shift now, and only that one.
+  const t3 = await body()
+  const named = ['Day shift', 'Night shift'].filter((w) => t3.includes(w))
+  if (named.length !== 1) {
+    throw new Error(`a filler was shown ${named.length} shifts: ${named.join(', ')}`)
+  }
+  if (/Both shifts/.test(t3)) throw new Error('a filler can reach the other shift')
 })
 
 await check('counter: a filler closes their own shift', async () => {
   await page.goto(`${BASE}/counter`)
   await page.locator('button', { hasText: 'Ramesh' }).first().click()
-  await page.waitForTimeout(400)
-  await page.locator('button', { hasText: 'Both shifts' }).first().click()
   await page.waitForTimeout(700)
 
-  const t2 = await body()
-  for (const w of ['Day shift', 'Night shift']) {
-    if (!t2.includes(w)) throw new Error(`the shift screen is missing "${w}"`)
-  }
   // A previous run may have left it handed in. Reopening is the filler's too,
   // so use it to get back to a shift they can close.
   const reopen = page.locator('button', { hasText: 'Reopen to fix something' })
