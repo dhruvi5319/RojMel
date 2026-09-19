@@ -71,6 +71,29 @@ against whoever served the lorry, so that form asks "Who is serving?" at the
 moment it counts. A filler works one shift and there is no way from their
 screen into the other one.
 
+**The counter is three tabs, because it is three errands.** *Shift* — start it,
+read the meters, see the hissab, finish it. *Who is on* — the fillers standing
+there. *Udhaar* — the slips written during it.
+
+**One reading per nozzle, taken at the start of the shift.** At 7am and again
+at 7pm somebody from the shift coming on walks the forecourt and writes down
+what every nozzle says. That one set of numbers is two things — the opening of
+the shift starting and the closing of the shift ending — so
+`record_meter_reading()` takes it once and writes both, and nobody is asked for
+a closing figure that has already been written down next door.
+`closing_reading` cannot be null and may not be below opening, so a shift that
+has only just started carries closing = opening: nothing sold yet.
+`v_shift_meters` is the walk, pumps first and then the CNG island.
+
+**Who is on a shift is two facts, not one.** `staff.default_shift` is the
+roster the office keeps; `shift_fillers` is who actually worked a given shift,
+seeded from the roster by a trigger when the shift opens and then belonging to
+the shift — changing the roster later does not rewrite who was standing there.
+Somebody covering a colleague is added on the device and marked `covering`,
+because that is decided on the forecourt at 6.55am, not in the office.
+
+**The dip is per tank, not per nozzle.** Nozzles have meters; tanks have dips.
+
 **The shift is the filler's until the office agrees it.** A filler opens and
 closes their own shift on the counter (`close_shift`, `reopen_shift`) — they are
 the one who handed the money over. Their readings and handover stay theirs to

@@ -3,19 +3,20 @@
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ArrowLeft, Check, Fuel, Gauge, LogOut, Truck, UserRound,
+  ArrowLeft, Check, Fuel, LogOut, UserRound,
 } from 'lucide-react'
 import { useT } from '@/lib/i18n/client'
 import { useLang } from '@/lib/i18n/client'
-import { litres as fmtLitres, money } from '@/lib/format'
+import { formatDateLong, money } from '@/lib/format'
 import type {
-  FuelType, NozzleState, Shift, Staff, UserRole, Vehicle,
+  FuelType, NozzleState, Shift, ShiftFiller, ShiftMeter, Staff, UserRole, Vehicle,
 } from '@/lib/database.types'
 import { LanguageSeg } from '@/components/AppNav'
 import { Alert, Badge, Button, Card, Field, NumberInput, Select, Input } from '@/components/ui'
 import { shiftHours, shiftLabel } from '@/lib/shifts'
 import {
-  closeMyShift, counterReading, counterSlip, ensureShift, reopenMyShift,
+  addFillerToShift, closeMyShift, counterSlip, ensureShift, removeFillerFromShift,
+  reopenMyShift, saveMeterReading,
 } from './actions'
 
 export interface CounterCustomer {
@@ -23,7 +24,14 @@ export interface CounterCustomer {
   name: string
 }
 
-type View = 'pick' | 'menu' | 'slip' | 'reading' | 'done'
+type View = 'pick' | 'menu' | 'slip' | 'done'
+
+/**
+ * Three tabs, because the device is used for three separate errands: the
+ * shift itself (start it, read the meters, see the hissab, finish it), who is
+ * standing on it today, and the udhaar written during it.
+ */
+type Tab = 'shift' | 'fillers' | 'udhaar'
 
 const n = (v: string) => (v.trim() === '' ? 0 : Number(v))
 
@@ -39,6 +47,9 @@ export function CounterApp({
   customers,
   vehicles,
   shifts,
+  meters,
+  fillers,
+  hissab,
 }: {
   stationName: string
   role: UserRole
@@ -51,6 +62,12 @@ export function CounterApp({
   customers: CounterCustomer[]
   vehicles: Vehicle[]
   shifts: Shift[]
+  /** every nozzle and CNG point, with what it read when the shift began */
+  meters: ShiftMeter[]
+  /** who is on this shift, rostered or covering */
+  fillers: ShiftFiller[]
+  /** what the shift sold, what went on udhaar, and so what cash is owed */
+  hissab: { sold: number; udhaar: number; cash: number }
 }) {
   const t = useT()
   const lang = useLang()
@@ -67,6 +84,7 @@ export function CounterApp({
    * and it is asked there, at the moment it counts.
    */
   const [view, setView] = useState<View>('menu')
+  const [tab, setTab] = useState<Tab>('shift')
   /** Where to go once somebody has said who they are. */
   const [after, setAfter] = useState<View>('menu')
   const [who, setWho] = useState<Staff | null>(null)
@@ -266,21 +284,35 @@ export function CounterApp({
         {/* -------------------------------------------------------- menu -- */}
         {view === 'menu' ? (
           <div>
-            <h1 className="mb-5 text-2xl font-semibold">
+            <h1 className="mb-1 text-2xl font-semibold">
               {shiftLabel(t, shiftNow.name)}
               <span className="ml-3 align-middle text-[14px] font-normal text-neutral-600">
                 {shiftHours(shiftNow.name)}
               </span>
             </h1>
+            <p className="mb-4 text-[13px] text-neutral-600">{formatDateLong(today)}</p>
 
-            <ShiftCard
-              shift={myShift}
-              running={shiftNow}
-              pending={pending}
-              onOpen={openShift}
-              onClose={closeShift}
-              onReopen={reopenShift}
-            />
+            {/* Three errands, three tabs. */}
+            <div className="mb-5 flex gap-2 overflow-x-auto">
+              {([
+                ['shift', t('counter.tabShift')],
+                ['fillers', t('counter.tabFillers')],
+                ['udhaar', t('counter.tabUdhaar')],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setTab(key)}
+                  className={`shrink-0 rounded-full px-5 py-2.5 text-[14px] font-semibold transition ${
+                    tab === key
+                      ? 'bg-accent text-bg'
+                      : 'bg-surface text-neutral-700 hover:bg-accent-100'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
             {error ? (
               <div className="mb-4">
@@ -288,35 +320,82 @@ export function CounterApp({
               </div>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              {/* The meter belongs to the shift: any one of its fillers reads
-                  it, so this does not ask who is pressing it. */}
-              <BigButton
-                icon={Gauge}
-                label={t('counter.enterReading')}
-                disabled={!myShift}
-                onClick={() => {
+            {tab === 'shift' ? (
+              <>
+                <ShiftCard
+                  shift={myShift}
+                  running={shiftNow}
+                  pending={pending}
+                  onOpen={openShift}
+                  onClose={closeShift}
+                  onReopen={reopenShift}
+                />
+                {myShift ? (
+                  <>
+                    <MeterSheet
+                      meters={meters}
+                      pending={pending}
+                      onSave={(nozzles, cng) => {
+                        setError(null)
+                        startTransition(async () => {
+                          const r = await saveMeterReading(myShift.id, nozzles, cng)
+                          if (r.error) setError(r.error)
+                          else router.refresh()
+                        })
+                      }}
+                    />
+                    <Hissab {...hissab} />
+                  </>
+                ) : null}
+              </>
+            ) : null}
+
+            {tab === 'fillers' ? (
+              <FillerList
+                fillers={fillers}
+                staff={staff}
+                shift={myShift}
+                pending={pending}
+                onAdd={(staffId) => {
                   setError(null)
-                  setView('reading')
+                  startTransition(async () => {
+                    const r = await addFillerToShift(myShift!.id, staffId)
+                    if (r.error) setError(r.error)
+                    else router.refresh()
+                  })
+                }}
+                onRemove={(staffId) => {
+                  setError(null)
+                  startTransition(async () => {
+                    const r = await removeFillerFromShift(myShift!.id, staffId)
+                    if (r.error) setError(r.error)
+                    else router.refresh()
+                  })
                 }}
               />
-              {/* A slip belongs to whoever served the lorry, so this one asks. */}
-              <BigButton
-                icon={Truck}
-                label={t('counter.newSlip')}
-                disabled={!myShift}
-                onClick={() => asSomebody('slip')}
-              />
-            </div>
+            ) : null}
 
-            {!myShift ? (
-              <p className="mt-3 text-[13px] text-neutral-600">
-                {t('counter.startFirst')}
-              </p>
+            {tab === 'udhaar' ? (
+              <div className="rounded-[var(--radius-card)] bg-surface p-5">
+                <p className="mb-4 text-[13.5px] text-neutral-600">
+                  {t('counter.udhaarHint')}
+                </p>
+                <Button
+                  size="lg"
+                  disabled={!myShift}
+                  onClick={() => asSomebody('slip')}
+                >
+                  {t('counter.newSlip')}
+                </Button>
+                {!myShift ? (
+                  <p className="mt-3 text-[13px] text-neutral-600">
+                    {t('counter.startFirst')}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : null}
-
 
         {/* -------------------------------------------------------- slip -- */}
         {view === 'slip' ? (
@@ -342,28 +421,6 @@ export function CounterApp({
           />
         ) : null}
 
-        {/* ----------------------------------------------------- reading -- */}
-        {view === 'reading' ? (
-          <ReadingForm
-            staffId={who?.id ?? null}
-            nozzles={nozzles}
-            shift={myShift!}
-            pending={pending}
-            error={error}
-            onBack={() => setView('menu')}
-            onSubmit={(payload) => {
-              setError(null)
-              startTransition(async () => {
-                const result = await counterReading(payload)
-                if (result.error) setError(result.error)
-                else {
-                  setView('done')
-                  router.refresh()
-                }
-              })
-            }}
-          />
-        ) : null}
 
         {/* -------------------------------------------------------- done -- */}
         {view === 'done' ? (
@@ -394,28 +451,296 @@ export function CounterApp({
   )
 }
 
-function BigButton({
-  icon: Icon,
-  label,
-  onClick,
-  disabled = false,
+/* ----------------------------------------------------- meter sheet -- */
+/**
+ * Every nozzle on the forecourt, one box each.
+ *
+ * This is the walk somebody actually does: two pumps with a petrol and a
+ * diesel nozzle on each point, and the CNG island, read in order and written
+ * down. It asks for one number per meter, not an opening and a closing — the
+ * closing of the shift going off is this same number, and the database puts
+ * it in both places.
+ */
+function MeterSheet({
+  meters,
+  pending,
+  onSave,
 }: {
-  icon: typeof Truck
-  label: string
-  onClick: () => void
-  /** Nothing can be written until the filler has said which shift they are on. */
-  disabled?: boolean
+  meters: ShiftMeter[]
+  pending: boolean
+  onSave: (
+    nozzles: { nozzle_id: string; reading: string }[],
+    cng: { dispenser_id: string; reading: string }[],
+  ) => void
 }) {
+  const t = useT()
+  const [v, setV] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      meters.map((m) => [
+        m.meter_id,
+        m.opening_reading != null ? String(m.opening_reading) : '',
+      ]),
+    ),
+  )
+
+  if (meters.length === 0) return null
+  const typed = meters.filter((m) => (v[m.meter_id] ?? '').trim() !== '').length
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex flex-col items-center gap-3 rounded-[var(--radius-card)] bg-surface px-4 py-11 text-[18px] font-semibold transition not-disabled:hover:bg-accent-100 disabled:opacity-45"
-    >
-      <Icon className="size-8 text-accent" aria-hidden />
-      {label}
-    </button>
+    <div className="mb-4 rounded-[var(--radius-card)] bg-surface p-5">
+      <div className="text-[17px] font-semibold">{t('counter.meterSheet')}</div>
+      <p className="mt-1 mb-4 text-[13px] text-neutral-600">{t('counter.meterHint')}</p>
+
+      <div className="flex flex-col divide-y divide-divider">
+        {meters.map((m) => (
+          <div key={m.meter_id} className="flex items-center justify-between gap-3 py-2.5">
+            <div className="min-w-0">
+              <div className="font-semibold">{m.name}</div>
+              <div className="text-[12px] text-neutral-600">
+                {m.fuel_name}
+                {m.opening_reading != null
+                  ? ` · ${t('counter.meterWas')} ${Number(m.opening_reading).toFixed(2)}`
+                  : ''}
+              </div>
+            </div>
+            <div className="w-36 shrink-0">
+              <NumberInput
+                step="0.001"
+                aria-label={`${t('counter.meterNow')} — ${m.name}`}
+                className="py-3 text-right text-lg"
+                value={v[m.meter_id] ?? ''}
+                onChange={(e) => setV((prev) => ({ ...prev, [m.meter_id]: e.target.value }))}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4">
+        <Button
+          size="lg"
+          disabled={pending || typed === 0}
+          onClick={() =>
+            onSave(
+              meters
+                .filter((m) => m.kind === 'nozzle')
+                .map((m) => ({ nozzle_id: m.meter_id, reading: v[m.meter_id] ?? '' })),
+              meters
+                .filter((m) => m.kind === 'cng')
+                .map((m) => ({ dispenser_id: m.meter_id, reading: v[m.meter_id] ?? '' })),
+            )
+          }
+        >
+          {pending ? t('common.saving') : t('counter.saveReading')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------------------------------------------------------- hissab -- */
+/** What the shift sold, what of it went on udhaar, and so what cash is owed. */
+function Hissab({ sold, udhaar, cash }: { sold: number; udhaar: number; cash: number }) {
+  const t = useT()
+  const lines: [string, number, boolean][] = [
+    [t('counter.wentOut'), sold, false],
+    [t('counter.onUdhaar'), udhaar, false],
+    [t('counter.cashDue'), cash, true],
+  ]
+
+  return (
+    <div className="rounded-[var(--radius-card)] bg-surface p-5">
+      <div className="mb-3 text-[17px] font-semibold">{t('counter.hissab')}</div>
+      <dl className="flex flex-col divide-y divide-divider">
+        {lines.map(([label, value, strong]) => (
+          <div key={label} className="flex justify-between gap-3 py-2.5">
+            <dt className={strong ? 'font-semibold' : 'text-neutral-700'}>{label}</dt>
+            <dd className={`tabular ${strong ? 'text-[17px] font-semibold' : ''}`}>
+              {money(value)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------- who is on -- */
+/**
+ * The fillers standing on this shift.
+ *
+ * The office says who is normally on the day and who on the night, and the
+ * shift is seeded from that when it opens. But somebody does not turn up and
+ * a colleague takes their shift, and that has to be sayable here, by the
+ * people standing there, rather than telephoned to the office.
+ */
+function FillerList({
+  fillers,
+  staff,
+  shift,
+  pending,
+  onAdd,
+  onRemove,
+}: {
+  fillers: ShiftFiller[]
+  staff: Staff[]
+  shift: Shift | undefined
+  pending: boolean
+  onAdd: (staffId: string) => void
+  onRemove: (staffId: string) => void
+}) {
+  const t = useT()
+  const lang = useLang()
+  const label = (s: { name: string; name_gu?: string | null }) =>
+    (lang === 'gu' && s.name_gu) || s.name
+  const [adding, setAdding] = useState('')
+
+  const notOn = staff.filter((s) => !fillers.some((f) => f.staff_id === s.id))
+
+  return (
+    <div className="rounded-[var(--radius-card)] bg-surface p-5">
+      <div className="mb-3 text-[17px] font-semibold">{t('counter.rostered')}</div>
+
+      {fillers.length === 0 ? (
+        <p className="text-[13.5px] text-neutral-600">{t('counter.nobodyOn')}</p>
+      ) : (
+        <div className="flex flex-col divide-y divide-divider">
+          {fillers.map((f) => (
+            <div key={f.staff_id} className="flex items-center justify-between gap-3 py-3">
+              <div className="min-w-0">
+                <span className="font-semibold">{label(f)}</span>
+                {f.covering ? (
+                  <span className="ml-2">
+                    <Badge tone="accent">{t('counter.covering')}</Badge>
+                  </span>
+                ) : null}
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={pending || !shift}
+                onClick={() => onRemove(f.staff_id)}
+              >
+                {t('common.remove')}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {shift && notOn.length > 0 ? (
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-[12rem] flex-1">
+            <Field label={t('counter.addCover')}>
+              <Select value={adding} onChange={(e) => setAdding(e.target.value)}>
+                <option value="">—</option>
+                {notOn.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {label(s)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Button
+            size="md"
+            disabled={pending || !adding}
+            onClick={() => {
+              onAdd(adding)
+              setAdding('')
+            }}
+          >
+            {t('common.add')}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------ shift card -- */
+function ShiftCard({
+  shift,
+  running,
+  pending,
+  onOpen,
+  onClose,
+  onReopen,
+}: {
+  shift: Shift | undefined
+  /** what the clock says is running, for when nobody has started it yet */
+  running: { name: string; order: number }
+  pending: boolean
+  onOpen: (name: string, order: number) => void
+  onClose: (id: string) => void
+  onReopen: (id: string) => void
+}) {
+  const t = useT()
+
+  // Nobody has started it. There is nothing to choose — the clock already
+  // says which shift this is — so this is one button, not a question.
+  if (!shift) {
+    return (
+      <div className="mb-4 rounded-[var(--radius-card)] bg-surface p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[17px] font-semibold">
+              {shiftLabel(t, running.name)}
+            </div>
+            <div className="mt-0.5 text-[13px] text-neutral-600">
+              {t('counter.shiftNotOpen')}
+            </div>
+          </div>
+          <Button
+            size="md"
+            disabled={pending}
+            onClick={() => onOpen(running.name, running.order)}
+          >
+            {t('counter.openMyShift')}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  const status = shift.status
+
+  return (
+    <div className="mb-4 rounded-[var(--radius-card)] bg-surface p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[19px] font-semibold">{shiftLabel(t, shift.name)}</div>
+          <div className="mt-0.5 text-[13px] text-neutral-600">
+            {status === 'approved'
+              ? t('counter.shiftApproved')
+              : status === 'submitted'
+                ? t('counter.shiftClosed')
+                : t('counter.shiftYours')}
+          </div>
+        </div>
+
+        <div className="shrink-0">
+          {status === 'open' ? (
+            <Button size="md" disabled={pending} onClick={() => onClose(shift.id)}>
+              {t('counter.closeMyShift')}
+            </Button>
+          ) : status === 'submitted' ? (
+            <Button
+              size="md"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => onReopen(shift.id)}
+            >
+              {t('counter.reopenMyShift')}
+            </Button>
+          ) : (
+            <Badge tone="ok">
+              <Check className="size-3.5" aria-hidden /> {t('shift.approved')}
+            </Badge>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -627,224 +952,6 @@ function SlipForm({
           {pending ? t('common.saving') : t('common.save')}
         </Button>
       </Card>
-    </div>
-  )
-}
-
-/* --------------------------------------------------------- reading form -- */
-
-function ReadingForm({
-  staffId,
-  nozzles,
-  shift,
-  pending,
-  error,
-  onBack,
-  onSubmit,
-}: {
-  staffId: string | null
-  nozzles: NozzleState[]
-  /** the shift this filler is on — the meter belongs to it */
-  shift: Shift
-  pending: boolean
-  error: string | null
-  onBack: () => void
-  onSubmit: (payload: Parameters<typeof counterReading>[0]) => void
-}) {
-  const t = useT()
-
-  const [nozzleId, setNozzleId] = useState(nozzles[0]?.nozzle_id ?? '')
-  const nozzle = nozzles.find((z) => z.nozzle_id === nozzleId)
-
-  const [opening, setOpening] = useState(String(nozzle?.last_closing ?? 0))
-  const [closing, setClosing] = useState('')
-  const [test, setTest] = useState('0')
-
-  const l = closing.trim() === '' ? 0 : n(closing) - n(opening) - n(test)
-  const rate = Number(nozzle?.sale_rate ?? 0)
-
-
-  return (
-    <div>
-      <BackBar label={t('counter.enterReading')} onBack={onBack} />
-
-      <Card className="flex flex-col gap-4 p-5">
-        {/* The meter belongs to the shift this filler is on, and they said
-            which at the top of their screen. */}
-        <div className="flex items-center justify-between rounded-full bg-surface px-5 py-3 text-[13.5px]">
-          <span className="text-neutral-600">{t('counter.goesTo')}</span>
-          <span className="font-semibold">{shiftLabel(t, shift.name)}</span>
-        </div>
-
-        <Field label={t('set.nozzles')} required>
-          <Select
-            value={nozzleId}
-            className="py-3 text-lg"
-            onChange={(e) => {
-              setNozzleId(e.target.value)
-              const nz = nozzles.find((z) => z.nozzle_id === e.target.value)
-              setOpening(String(nz?.last_closing ?? 0))
-              setClosing('')
-            }}
-          >
-            {nozzles.map((z) => (
-              <option key={z.nozzle_id} value={z.nozzle_id}>
-                {z.name} — {z.fuel_name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={t('shift.opening')} required>
-            <NumberInput
-              step="0.001"
-              value={opening}
-              className="py-3 text-lg"
-              onChange={(e) => setOpening(e.target.value)}
-            />
-          </Field>
-          <Field label={t('shift.closing')} required>
-            <NumberInput
-              step="0.001"
-              value={closing}
-              className="py-3 text-lg"
-              onChange={(e) => setClosing(e.target.value)}
-            />
-          </Field>
-        </div>
-
-        <Field label={t('shift.testing')} hint={t('shift.testHint')}>
-          <NumberInput
-            step="0.001"
-            value={test}
-            onChange={(e) => setTest(e.target.value)}
-          />
-        </Field>
-
-        <div className="flex items-center justify-between rounded-full bg-surface px-5 py-3">
-          <span className="tabular font-medium">{fmtLitres(Math.max(0, l))}</span>
-          <span className="tabular text-xl font-semibold">
-            {money(Math.max(0, l) * rate)}
-          </span>
-        </div>
-
-        {error ? <Alert tone="danger">{error}</Alert> : null}
-
-        <Button
-          size="lg"
-          disabled={pending || !nozzleId || closing.trim() === '' || l < 0}
-          onClick={() =>
-            onSubmit(
-              {
-                shift_id: shift.id,
-                nozzle_id: nozzleId,
-                staff_id: staffId,
-                opening_reading: n(opening),
-                closing_reading: n(closing),
-                test_litres: n(test),
-                sale_rate: rate,
-              },
-            )
-          }
-        >
-          {pending ? t('common.saving') : t('common.save')}
-        </Button>
-      </Card>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------ shift card -- */
-/**
- * The shift this filler is on — one, because a person works one.
- *
- * They come on duty and say which half of the day they have; from then on it
- * is simply their shift, and every reading and slip belongs to it without
- * being asked again. The other shift is somebody else's and they cannot touch
- * it: closing a colleague's shift is not a thing a pump lets a filler do.
- */
-function ShiftCard({
-  shift,
-  running,
-  pending,
-  onOpen,
-  onClose,
-  onReopen,
-}: {
-  shift: Shift | undefined
-  /** what the clock says is running, for when nobody has started it yet */
-  running: { name: string; order: number }
-  pending: boolean
-  onOpen: (name: string, order: number) => void
-  onClose: (id: string) => void
-  onReopen: (id: string) => void
-}) {
-  const t = useT()
-
-  // Nobody has started it. There is nothing to choose — the clock already
-  // says which shift this is — so this is one button, not a question.
-  if (!shift) {
-    return (
-      <div className="mb-4 rounded-[var(--radius-card)] bg-surface p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[17px] font-semibold">
-              {shiftLabel(t, running.name)}
-            </div>
-            <div className="mt-0.5 text-[13px] text-neutral-600">
-              {t('counter.shiftNotOpen')}
-            </div>
-          </div>
-          <Button
-            size="md"
-            disabled={pending}
-            onClick={() => onOpen(running.name, running.order)}
-          >
-            {t('counter.openMyShift')}
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  const status = shift.status
-
-  return (
-    <div className="mb-4 rounded-[var(--radius-card)] bg-surface p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[19px] font-semibold">{shiftLabel(t, shift.name)}</div>
-          <div className="mt-0.5 text-[13px] text-neutral-600">
-            {status === 'approved'
-              ? t('counter.shiftApproved')
-              : status === 'submitted'
-                ? t('counter.shiftClosed')
-                : t('counter.shiftYours')}
-          </div>
-        </div>
-
-        <div className="shrink-0">
-          {status === 'open' ? (
-            <Button size="md" disabled={pending} onClick={() => onClose(shift.id)}>
-              {t('counter.closeMyShift')}
-            </Button>
-          ) : status === 'submitted' ? (
-            <Button
-              size="md"
-              variant="secondary"
-              disabled={pending}
-              onClick={() => onReopen(shift.id)}
-            >
-              {t('counter.reopenMyShift')}
-            </Button>
-          ) : (
-            <Badge tone="ok">
-              <Check className="size-3.5" aria-hidden /> {t('shift.approved')}
-            </Badge>
-          )}
-        </div>
-      </div>
     </div>
   )
 }

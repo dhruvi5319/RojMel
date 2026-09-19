@@ -38,6 +38,8 @@ export interface Profile {
 }
 
 export interface Staff {
+  /** which shift they normally work — 'Day', 'Night', or null */
+  default_shift: string | null
   id: string
   station_id: string
   name: string
@@ -615,6 +617,33 @@ export interface LastTax {
   cess_rate: number | null
   rate_per_kl: number | null
   rate_per_kg: number | null
+}
+
+/** view: v_shift_meters — every nozzle and CNG point, and what it read */
+export interface ShiftMeter {
+  shift_id: string
+  station_id: string
+  kind: 'nozzle' | 'cng'
+  meter_id: string
+  name: string
+  fuel_name: string
+  unit: 'L' | 'kg'
+  sort_order: number
+  opening_reading: number | null
+  closing_reading: number | null
+  quantity: number | null
+}
+
+/** view: v_shift_fillers — who worked this shift, and who was covering */
+export interface ShiftFiller {
+  shift_id: string
+  station_id: string
+  staff_id: string
+  name: string
+  name_gu: string | null
+  covering: boolean
+  default_shift: string | null
+  added_at: string
 }
 
 /** view: v_fuel_rates — the rate in force per fuel, and whether it is today's */

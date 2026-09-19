@@ -73,6 +73,52 @@ select assert_eq(pump_day('2026-09-20 07:00+05:30'::timestamptz), '2026-09-20'::
 select assert_eq(pump_day('2026-09-20 23:30+05:30'::timestamptz), '2026-09-20'::date,
                  'and the night shift before midnight is still that day');
 
+-- ------------------------------ one reading, taken at the start of a shift ---
+-- How it is actually done: at 7am and again at 7pm somebody from the shift
+-- coming on walks the forecourt and writes down what every nozzle says. That
+-- one set of numbers opens their shift and closes the one going off, so the
+-- app takes it once and puts it in both places.
+do $do$
+declare v_day uuid; v_night uuid; v_nz uuid;
+begin
+  select id into v_day   from shifts where business_date = current_date and name = 'Day';
+  select id into v_night from shifts where business_date = current_date and name = 'Night';
+  select id into v_nz    from nozzles where name = 'P1';
+
+  if v_night is null then
+    insert into shifts (station_id, business_date, name, sort_order, status)
+    values ('11111111-1111-1111-1111-111111111111', current_date, 'Night', 2, 'open')
+    returning id into v_night;
+  end if;
+
+  -- 7am on the day shift: every nozzle reads 1000
+  perform record_meter_reading(v_day,
+    jsonb_build_array(jsonb_build_object('nozzle_id', v_nz, 'reading', 1000)));
+  -- 7pm, the night shift coming on: the same nozzle reads 1250
+  perform record_meter_reading(v_night,
+    jsonb_build_array(jsonb_build_object('nozzle_id', v_nz, 'reading', 1250)));
+end
+$do$;
+
+select assert_eq((select closing_reading from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date and name = 'Day')
+                     and nozzle_id = (select id from nozzles where name = 'P1')),
+                 1250.000::numeric,
+                 'the night shift''s reading closed the day shift');
+select assert_eq((select opening_reading from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date and name = 'Night')
+                     and nozzle_id = (select id from nozzles where name = 'P1')),
+                 1250.000::numeric,
+                 'and opened its own, off the same number');
+-- A shift that has only just started has sold nothing, not a negative amount.
+select assert_eq((select litres from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date and name = 'Night')
+                     and nozzle_id = (select id from nozzles where name = 'P1')),
+                 0.000::numeric, 'and it has sold nothing yet');
+
 -- ------------------------------------------------ two shifts, day and night --
 -- The pump runs two, and a slip belongs to one of them: udhaar not on a shift
 -- makes that shift look short by exactly the amount written during it.

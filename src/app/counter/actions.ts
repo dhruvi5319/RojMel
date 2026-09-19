@@ -126,3 +126,64 @@ export async function reopenMyShift(shiftId: string): Promise<CounterResult> {
   revalidatePath('/shifts')
   return { ok: true }
 }
+
+/**
+ * The meter reading, taken once at the start of a shift.
+ *
+ * The same walk round the forecourt gives two numbers to the books: the
+ * opening of the shift coming on and the closing of the one going off. The
+ * database writes both, so nobody is asked for a figure that has already been
+ * written down next door.
+ */
+export async function saveMeterReading(
+  shiftId: string,
+  nozzles: { nozzle_id: string; reading: string }[],
+  cng: { dispenser_id: string; reading: string }[],
+): Promise<CounterResult> {
+  const supabase = await createClient()
+  const { error } = await supabase.rpc('record_meter_reading', {
+    p_shift_id: shiftId,
+    p_nozzles: nozzles.filter((n) => n.reading.trim() !== ''),
+    p_cng: cng.filter((c) => c.reading.trim() !== ''),
+  })
+  if (error) return { error: error.message }
+  revalidatePath('/counter')
+  revalidatePath('/shifts')
+  return { ok: true }
+}
+
+/** Somebody has come in for a colleague who could not. */
+export async function addFillerToShift(
+  shiftId: string,
+  staffId: string,
+): Promise<CounterResult> {
+  const supabase = await createClient()
+  // Anyone added on the device is standing in: the rostered fillers were put
+  // there by the trigger when the shift opened.
+  const { error } = await supabase
+    .from('shift_fillers')
+    .insert({ shift_id: shiftId, staff_id: staffId, covering: true })
+  if (error) return { error: error.message }
+  revalidatePath('/counter')
+  return { ok: true }
+}
+
+/** And somebody who is not here after all. */
+export async function removeFillerFromShift(
+  shiftId: string,
+  staffId: string,
+): Promise<CounterResult> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('shift_fillers')
+    .delete()
+    .eq('shift_id', shiftId)
+    .eq('staff_id', staffId)
+    .select('staff_id')
+  if (error) return { error: error.message }
+  if (!data?.length) {
+    return { error: 'Nothing was changed. The shift may already be approved.' }
+  }
+  revalidatePath('/counter')
+  return { ok: true }
+}

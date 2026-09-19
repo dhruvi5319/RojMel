@@ -18,6 +18,7 @@ export async function addStaff(_prev: FormState, data: FormData): Promise<FormSt
     name_gu: String(data.get('name_gu') ?? '').trim() || null,
     phone: String(data.get('phone') ?? '').trim() || null,
     pin: pin || null,
+    default_shift: String(data.get('default_shift') ?? '').trim() || null,
     monthly_salary: Number(data.get('monthly_salary') ?? 0),
     joined_on: String(data.get('joined_on') ?? '') || null,
   })
@@ -39,6 +40,7 @@ export async function updateStaff(_prev: FormState, data: FormData): Promise<For
       name_gu: String(data.get('name_gu') ?? '').trim() || null,
       phone: String(data.get('phone') ?? '').trim() || null,
       pin: pin || null,
+      default_shift: String(data.get('default_shift') ?? '').trim() || null,
       monthly_salary: Number(data.get('monthly_salary') ?? 0),
       is_active: data.get('is_active') === 'on',
     })

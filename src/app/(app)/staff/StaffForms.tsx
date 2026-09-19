@@ -3,6 +3,7 @@
 import { useT } from '@/lib/i18n/client'
 import type { PaymentMode, Staff, StaffPaymentType } from '@/lib/database.types'
 import { Field, Input, NumberInput, Select, Textarea } from '@/components/ui'
+import { SHIFTS } from '@/lib/shifts'
 import { ActionForm, SubmitButton } from '@/components/ActionForm'
 import { addStaff, payStaff, updateStaff } from './actions'
 
@@ -32,9 +33,21 @@ export function AddStaffForm() {
           <Input name="joined_on" type="date" />
         </Field>
       </div>
-      <Field label={t('staff.pin')} hint={t('staff.pinHint')}>
-        <Input name="pin" inputMode="numeric" maxLength={4} pattern="\d{4}" />
-      </Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={t('staff.normallyOn')} hint={t('staff.normallyOnHint')}>
+          <Select name="default_shift" defaultValue="">
+            <option value="">—</option>
+            {SHIFTS.map((sh) => (
+              <option key={sh.name} value={sh.name}>
+                {t(sh.key)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={t('staff.pin')} hint={t('staff.pinHint')}>
+          <Input name="pin" inputMode="numeric" maxLength={4} pattern="\d{4}" />
+        </Field>
+      </div>
       <div>
         <SubmitButton size="md">{t('common.add')}</SubmitButton>
       </div>
@@ -74,6 +87,21 @@ export function EditStaffForm({ member }: { member: Staff }) {
             pattern="\d{4}"
             defaultValue={member.pin ?? ''}
           />
+        </Field>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/* Which shift this filler normally works. The shift is seeded from
+            this when it opens; changing it afterwards does not rewrite who
+            was standing there. */}
+        <Field label={t('staff.normallyOn')} hint={t('staff.normallyOnHint')}>
+          <Select name="default_shift" defaultValue={member.default_shift ?? ''}>
+            <option value="">—</option>
+            {SHIFTS.map((sh) => (
+              <option key={sh.name} value={sh.name}>
+                {t(sh.key)}
+              </option>
+            ))}
+          </Select>
         </Field>
       </div>
       <label className="flex items-center gap-2">

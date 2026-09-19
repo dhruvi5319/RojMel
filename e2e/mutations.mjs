@@ -1058,10 +1058,12 @@ await check('counter: lands on its own screen', async () => {
 await check('counter: a filler writes an udhaar slip, on their shift', async () => {
   await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
   await page.waitForTimeout(700)
+  await page.locator('button', { hasText: /^Udhaar$/ }).first().click()
+  await page.waitForTimeout(500)
   await page.locator('button', { hasText: 'Udhaar slip' }).first().click()
-  await page.waitForTimeout(600)
+  await page.waitForTimeout(700)
   await page.locator('button', { hasText: 'Ramesh' }).first().click()
-  await page.waitForTimeout(600)
+  await page.waitForTimeout(700)
 
   // The slip belongs to the shift this filler is on, and they said which
   // when they came on duty. Asking a second time is a chance to answer wrongly.
@@ -1112,19 +1114,65 @@ await check('counter: the clock says which shift, nobody is asked', async () => 
     }
   }
 
-  await page.locator('button', { hasText: 'Shift reading' }).first().click()
-  await page.waitForTimeout(900)
+  // The meter sheet is one box per nozzle, read without anyone being asked
+  // who is holding the device.
   const t3 = await body()
   if (/Who are you|Who is serving/.test(t3)) {
     throw new Error('the meter reading asked who was pressing it')
   }
-  if (!/Goes to/.test(t3)) throw new Error('the reading does not say which shift it lands on')
+  if (!/Meter reading/.test(t3)) throw new Error('no meter sheet on the shift tab')
+  const meters = page.locator('input[aria-label^="Reads now"]')
+  if ((await meters.count()) === 0) throw new Error('the meter sheet has no meters')
+
+  // Every nozzle and the CNG island, in the order somebody walks them.
+  const count = await meters.count()
+  for (let i = 0; i < count; i++) await meters.nth(i).fill(String(4000 + i))
+  await page.locator('button', { hasText: 'Save the reading' }).first().click()
+  await page.waitForTimeout(3500)
+  if (!/At the start/.test(await body())) {
+    throw new Error(`the reading did not stick: ${await body()}`)
+  }
+
+  // And the shift's own hissab, which is what a filler needs at handover.
+  for (const w of ['Went out of the pump', 'Of that, on udhaar', 'Cash to hand over']) {
+    if (!(await body()).includes(w)) throw new Error(`the hissab is missing "${w}"`)
+  }
+})
+
+// A shift is worked by several fillers. The office says who is normally on it;
+// the device says who actually turned up, because somebody covers.
+await check('counter: who is on this shift', async () => {
+  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
+  await page.waitForTimeout(800)
+  await page.locator('button', { hasText: 'Who is on' }).first().click()
+  await page.waitForTimeout(700)
+
+  const t2 = await body()
+  if (!/On this shift/.test(t2)) throw new Error('no list of who is on the shift')
+  if (!/Somebody else came in|Nobody is down for this shift/.test(t2)) {
+    throw new Error('no way to say somebody covered')
+  }
+
+  const sel = page.locator('select').first()
+  if ((await sel.count()) > 0) {
+    const options = await sel.locator('option').allTextContents()
+    if (options.length > 1) {
+      await sel.selectOption({ label: options[1] })
+      await page.locator('button', { hasText: /^Add$/ }).first().click()
+      await page.waitForTimeout(3000)
+      if (!/Covering/.test(await body())) {
+        throw new Error('somebody who came in for a colleague was not marked as covering')
+      }
+    }
+  }
 })
 
 // A slip belongs to whoever served the lorry, so that one does ask.
 await check('counter: the slip asks who is serving', async () => {
   await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
   await page.waitForTimeout(800)
+  await page.locator('button', { hasText: /^Udhaar$/ }).first().click()
+  await page.waitForTimeout(600)
   await page.locator('button', { hasText: 'Udhaar slip' }).first().click()
   await page.waitForTimeout(800)
   if (!/Who is serving/.test(await body())) {
