@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ArrowLeft, Check, Clock, Fuel, Gauge, LogOut, Truck, UserRound,
+  ArrowLeft, Check, Fuel, Gauge, LogOut, Truck, UserRound,
 } from 'lucide-react'
 import { useT } from '@/lib/i18n/client'
 import { useLang } from '@/lib/i18n/client'
@@ -71,6 +71,35 @@ export function CounterApp({
     }
     setWho(member)
     setView('menu')
+  }
+
+  /* The shift's three acts, shared by the card on the menu and the screen
+     behind it — two copies would drift. */
+  function openShift(name: string, order: number) {
+    setError(null)
+    startTransition(async () => {
+      const r = await ensureShift(name, order, today)
+      if ('error' in r && r.error) setError(r.error)
+      else router.refresh()
+    })
+  }
+
+  function closeShift(id: string) {
+    setError(null)
+    startTransition(async () => {
+      const r = await closeMyShift(id)
+      if (r.error) setError(r.error)
+      else router.refresh()
+    })
+  }
+
+  function reopenShift(id: string) {
+    setError(null)
+    startTransition(async () => {
+      const r = await reopenMyShift(id)
+      if (r.error) setError(r.error)
+      else router.refresh()
+    })
   }
 
   function confirmPin() {
@@ -208,15 +237,30 @@ export function CounterApp({
             <h1 className="mb-5 text-2xl font-semibold">
               {t('common.today')} — {nameOf(who!)}
             </h1>
+
+            {/* The shift is the frame round everything else a filler does, so
+                it is the first thing on the screen with its one action on it.
+                It used to be a tile called "My shift", two taps from being
+                able to start or finish one. */}
+            <ShiftCard
+              shifts={shifts}
+              pending={pending}
+              onOpen={openShift}
+              onClose={closeShift}
+              onReopen={reopenShift}
+              onMore={() => {
+                setError(null)
+                setView('shift')
+              }}
+            />
+
+            {error ? (
+              <div className="mb-4">
+                <Alert tone="danger">{error}</Alert>
+              </div>
+            ) : null}
+
             <div className="grid gap-3 sm:grid-cols-2">
-              <BigButton
-                icon={Truck}
-                label={t('counter.newSlip')}
-                onClick={() => {
-                  setError(null)
-                  setView('slip')
-                }}
-              />
               <BigButton
                 icon={Gauge}
                 label={t('counter.enterReading')}
@@ -226,11 +270,11 @@ export function CounterApp({
                 }}
               />
               <BigButton
-                icon={Clock}
-                label={t('counter.myShift')}
+                icon={Truck}
+                label={t('counter.newSlip')}
                 onClick={() => {
                   setError(null)
-                  setView('shift')
+                  setView('slip')
                 }}
               />
             </div>
@@ -244,30 +288,9 @@ export function CounterApp({
             pending={pending}
             error={error}
             onBack={() => setView('menu')}
-            onOpen={(name, order) => {
-              setError(null)
-              startTransition(async () => {
-                const r = await ensureShift(name, order, today)
-                if ('error' in r && r.error) setError(r.error)
-                else router.refresh()
-              })
-            }}
-            onClose={(id) => {
-              setError(null)
-              startTransition(async () => {
-                const r = await closeMyShift(id)
-                if (r.error) setError(r.error)
-                else router.refresh()
-              })
-            }}
-            onReopen={(id) => {
-              setError(null)
-              startTransition(async () => {
-                const r = await reopenMyShift(id)
-                if (r.error) setError(r.error)
-                else router.refresh()
-              })
-            }}
+            onOpen={openShift}
+            onClose={closeShift}
+            onReopen={reopenShift}
           />
         ) : null}
 
@@ -771,6 +794,105 @@ function ReadingForm({
           {pending ? t('common.saving') : t('common.save')}
         </Button>
       </Card>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------ shift card -- */
+/**
+ * Which shift is running, and the one thing to do about it.
+ *
+ * A filler does not think "I will open a shift" as an errand separate from
+ * noting the meter — they come on duty, read the meter, work, read it again
+ * and hand the cash over. So the shift sits at the top of their screen with
+ * its single action on it, rather than behind a tile they have to know to
+ * press.
+ *
+ * "The" shift is whichever one they are standing in: the open one, else the
+ * next one nobody has started, else the last of the day.
+ */
+function ShiftCard({
+  shifts,
+  pending,
+  onOpen,
+  onClose,
+  onReopen,
+  onMore,
+}: {
+  shifts: Shift[]
+  pending: boolean
+  onOpen: (name: string, order: number) => void
+  onClose: (id: string) => void
+  onReopen: (id: string) => void
+  onMore: () => void
+}) {
+  const t = useT()
+
+  const open = shifts.find((s) => s.status === 'open')
+  const notStarted = SHIFTS.find((o) => !shifts.some((s) => s.name === o.name))
+  const last = [...shifts].sort((a, b) => a.sort_order - b.sort_order).at(-1)
+
+  const option = open
+    ? SHIFTS.find((o) => o.name === open.name)
+    : (notStarted ?? SHIFTS.find((o) => o.name === last?.name))
+  const shift = open ?? (notStarted ? undefined : last)
+  const status = shift?.status
+
+  const state = !shift
+    ? t('counter.shiftNotOpen')
+    : status === 'approved'
+      ? t('counter.shiftApproved')
+      : status === 'submitted'
+        ? t('counter.shiftClosed')
+        : t('shift.open')
+
+  return (
+    <div className="mb-4 rounded-[var(--radius-card)] bg-surface p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[19px] font-semibold">
+            {option ? t(option.key) : t('counter.myShift')}
+          </div>
+          <div className="mt-0.5 text-[13px] text-neutral-600">{state}</div>
+        </div>
+
+        <div className="shrink-0">
+          {!shift ? (
+            <Button
+              size="md"
+              disabled={pending || !option}
+              onClick={() => option && onOpen(option.name, option.order)}
+            >
+              {t('counter.openMyShift')}
+            </Button>
+          ) : status === 'open' ? (
+            <Button size="md" disabled={pending} onClick={() => onClose(shift.id)}>
+              {t('counter.closeMyShift')}
+            </Button>
+          ) : status === 'submitted' ? (
+            <Button
+              size="md"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => onReopen(shift.id)}
+            >
+              {t('counter.reopenMyShift')}
+            </Button>
+          ) : (
+            <Badge tone="ok">
+              <Check className="size-3.5" aria-hidden /> {t('shift.approved')}
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onMore}
+        className="mt-3 text-[13px] font-semibold text-accent hover:underline"
+      >
+        {t('counter.bothShifts')} →
+      </button>
     </div>
   )
 }

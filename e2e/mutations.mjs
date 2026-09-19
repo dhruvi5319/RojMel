@@ -1051,11 +1051,31 @@ await check('counter: a filler writes an udhaar slip, on their shift', async () 
 
 // The filler starts and finishes their own shift, and may keep correcting it
 // until the office agrees the figures.
+await check('counter: the shift is the first thing on the filler\'s screen', async () => {
+  await page.goto(`${BASE}/counter`)
+  await page.locator('button', { hasText: 'Ramesh' }).first().click()
+  await page.waitForTimeout(700)
+
+  // Starting and finishing a shift must be on the menu, not behind a tile a
+  // filler has to know to press: the shift frames everything else they do.
+  const t2 = await body()
+  if (!/Day shift|Night shift/.test(t2)) {
+    throw new Error('the menu does not say which shift is running')
+  }
+  const act = page.locator(
+    'button:has-text("Start my shift"), button:has-text("My shift is finished"), button:has-text("Reopen to fix something")',
+  )
+  if ((await act.count()) === 0) {
+    throw new Error(`no way to start or finish a shift from the menu: ${t2}`)
+  }
+  if (!t2.includes('Both shifts')) throw new Error('no way through to the other shift')
+})
+
 await check('counter: a filler closes their own shift', async () => {
   await page.goto(`${BASE}/counter`)
   await page.locator('button', { hasText: 'Ramesh' }).first().click()
   await page.waitForTimeout(400)
-  await page.locator('button', { hasText: 'My shift' }).first().click()
+  await page.locator('button', { hasText: 'Both shifts' }).first().click()
   await page.waitForTimeout(700)
 
   const t2 = await body()

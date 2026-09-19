@@ -49,6 +49,13 @@ A form still sitting open with its fields full reads as "nothing happened",
 which is the one thing it must not say. `stayOpen` opts out, for a form that is
 meant to be used again straight away.
 
+**The shift is the first thing on the counter screen.** A filler does not think
+"I will open a shift" as an errand separate from noting the meter — they come on
+duty, read the meter, work, read it again and hand the cash over. So the shift
+sits at the top of their menu with its one action on it (start · finish ·
+reopen), and the meter reading is the tile directly beneath. It used to be a
+tile called "My shift", two taps from being able to start or finish one.
+
 **The shift is the filler's until the office agrees it.** A filler opens and
 closes their own shift on the counter (`close_shift`, `reopen_shift`) — they are
 the one who handed the money over. Their readings and handover stay theirs to
