@@ -85,11 +85,14 @@ export function CounterApp({
   /* ------------------------------------------------------------ header -- */
   const header = (
     <header className="flex items-center justify-between gap-3 bg-surface px-4 py-3">
-      <div className="flex items-center gap-2.5">
-        <span className="grid size-9 place-items-center rounded-full bg-accent text-bg">
+      {/* min-w-0 or the truncate below never fires: a flex item will not
+          shrink past its content, so a long pump name pushed the language
+          toggle and the filler's name off a narrow phone. */}
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-bg">
           <Fuel className="size-5" aria-hidden />
         </span>
-        <div>
+        <div className="min-w-0">
           <div className="truncate font-[family-name:var(--font-heading)] text-[16px] leading-tight">
             {stationName}
           </div>

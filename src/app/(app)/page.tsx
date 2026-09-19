@@ -113,7 +113,14 @@ export default async function TheDay({
       href: `/day?date=${date}`,
       label: t('day.approve'),
       who: 'owner' as const,
-      detail: approved ? t('day.approved') : t('dash.pendingApproval'),
+      // Three states, not two. A day the manager has not sent yet is not
+      // "waiting for your approval" — saying so contradicted the banner
+      // below it, which correctly said she was still checking.
+      detail: approved
+        ? t('day.approved')
+        : day?.status === 'submitted'
+          ? t('dash.pendingApproval')
+          : t('dash.notSentYet'),
       done: approved,
     },
   ]
