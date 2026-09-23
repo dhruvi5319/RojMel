@@ -14,6 +14,7 @@ import {
 } from '@/components/ui'
 import { DeleteButton } from '@/components/DeleteButton'
 import { ActionForm, SubmitButton } from '@/components/ActionForm'
+import { Editable } from '@/components/Editable'
 import { CustomerFields } from '../CustomerFields'
 import { addVehicle, removeVehicle, updateCustomer } from '../actions'
 
@@ -26,6 +27,16 @@ interface LedgerRow {
   detail: string
   debit: number
   credit: number
+}
+
+function Detail({ label, value }: { label: string; value: string | null }) {
+  if (!value) return null
+  return (
+    <div>
+      <dt className="text-[11.5px] text-neutral-700">{label}</dt>
+      <dd className="mt-0.5 text-[13.5px] text-neutral-900">{value}</dd>
+    </div>
+  )
 }
 
 export default async function CustomerPage({
@@ -329,27 +340,64 @@ export default async function CustomerPage({
         </Card>
       </div>
 
-      {/* ---------------------------------------------------------- edit -- */}
+      {/* ------------------------------------------------ what we hold -- */}
+      {/* This card used to be a permanently open edit form titled "Edit", so
+          the page ended in a wall of boxes and the customer's own details
+          were nowhere to be read. It shows them; the pencil edits them. */}
       <div className="mt-6">
         <Card>
-          <CardHeader title={t('common.edit')} />
+          <CardHeader title={t('cust.details')} />
           <div className="p-5">
-            <ActionForm action={updateCustomer} onDone={t('counter.done')}>
-              <input type="hidden" name="id" value={id} />
-              <CustomerFields customer={customer} />
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  name="is_active"
-                  defaultChecked={customer.is_active}
-                  className="size-4 accent-[var(--brand)]"
-                />
-                <span className="text-sm font-medium">Active</span>
-              </label>
-              <div>
-                <SubmitButton>{t('common.save')}</SubmitButton>
-              </div>
-            </ActionForm>
+            <Editable
+              label={t('cust.details')}
+              view={
+                <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+                  <Detail label={t('cust.contact')} value={customer.contact_person} />
+                  <Detail label={t('common.phone')} value={customer.phone} />
+                  <Detail label={t('cust.address')} value={customer.address} />
+                  <Detail label={t('cust.gstin')} value={customer.gstin} />
+                  <Detail
+                    label={t('cust.creditLimit')}
+                    value={customer.credit_limit > 0 ? money(customer.credit_limit) : null}
+                  />
+                  <Detail
+                    label={t('cust.openingBalance')}
+                    value={
+                      Number(customer.opening_balance) !== 0
+                        ? `${money(customer.opening_balance)}${
+                            customer.opening_balance_date
+                              ? ` · ${formatDate(customer.opening_balance_date)}`
+                              : ''
+                          }`
+                        : null
+                    }
+                  />
+                  <Detail label={t('common.notes')} value={customer.notes} />
+                  <Detail
+                    label={t('common.status')}
+                    value={customer.is_active ? t('common.active') : t('common.stopped')}
+                  />
+                </dl>
+              }
+              form={
+                <ActionForm action={updateCustomer} onDone={t('counter.done')}>
+                  <input type="hidden" name="id" value={id} />
+                  <CustomerFields customer={customer} />
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="is_active"
+                      defaultChecked={customer.is_active}
+                      className="size-4 accent-[var(--brand)]"
+                    />
+                    <span className="text-sm font-medium">{t('common.active')}</span>
+                  </label>
+                  <div>
+                    <SubmitButton>{t('common.save')}</SubmitButton>
+                  </div>
+                </ActionForm>
+              }
+            />
           </div>
         </Card>
       </div>

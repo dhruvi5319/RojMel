@@ -53,10 +53,12 @@ export default async function ExpensesPage({
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Stat label={t('common.total')} value={money(total)} tone="accent" />
         <Stat label={t('mode.cash')} value={money(cash)} />
+        {/* The label said "Category" and the value was an amount, which read
+            as a category costing money. It is the biggest one. */}
         <Stat
-          label={t('common.category')}
-          value={top[0] ? money(top[0][1]) : '—'}
-          hint={top[0]?.[0]}
+          label={t('exp.biggestCategory')}
+          value={top[0]?.[0] ?? '—'}
+          hint={top[0] ? money(top[0][1]) : undefined}
         />
       </div>
 

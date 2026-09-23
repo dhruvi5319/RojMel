@@ -65,7 +65,8 @@ export default async function RatesPage() {
       ) : null}
 
       <div className="mb-5">
-        <TodaysRates rates={rates} />
+        {/* The page header and the warning above have already said it twice. */}
+        <TodaysRates rates={rates} titled={false} />
       </div>
 
       <Card className="overflow-hidden pb-1">

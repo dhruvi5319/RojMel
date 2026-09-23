@@ -42,6 +42,45 @@ The BPCL card is a prepaid card BPCL issues to a customer, so the fuel is paid
 for — it is a collection, never udhaar — but it settles to the bank and never
 reaches the cash box. Only `cash_amount` does.
 
+**A Save button sleeps until there is something to save.** `ActionForm` tracks
+whether anything has been typed since the form loaded or last saved, and
+`SubmitButton` is disabled until then — a button lit with nothing behind it
+invites people to press it and wonder whether anything happened. It goes back
+to sleep the moment a save lands, which is how the screen says the change is
+in. A form with nothing to type into — a delete, a toggle, a cancellation —
+passes `alwaysReady`, because pressing it *is* the change. Custom forms that
+are not `ActionForm` (the counter's meter sheet) do the same by hand.
+
+**A filler starts the shift; the clock only says which one is due.** Nothing
+is running until somebody on the forecourt presses start, and `start_shift()`
+writes down the hour it really began and the filler who began it — so a
+handover at ten past seven reads as ten past seven, and a night nobody opened
+does not appear retrospectively under the first slip written. The clock keeps
+the two jobs it is good at: naming the shift that is due, as an offer on the
+start sheet, and stamping the working day. Pressing start twice is not two
+shifts, and pressing it on a shift handed in early reopens it, which is the
+filler's own right until the office agrees the figures. The counter resting
+with nothing open is a screen in its own right — "No shift is running" — and
+the Udhaar and Who-is-on tabs are dead until one is.
+
+**The device says which shift it is writing to, and can be moved.** Two pills
+under the pump's name name the working day's two shifts and their state; the
+⇄ beside them opens the picker, which reaches the working day and the one
+before it — exactly as far as the counter's policies do. Being on a shift that
+is not the one being worked is legitimate, because a slip written at 7.05
+belongs to the shift that has just gone, but it must never happen quietly: the
+screen says so in red and offers the way back.
+
+**The device can always be handed back.** The forecourt stays signed in as
+the pump on purpose — a filler should never meet a password between a lorry
+and a slip — but staying signed in is not the same as being unable to leave,
+and for a while it was: signed in as the counter there was no sign out, and
+every other route redirects back to `/counter`, so the only way to the login
+page was clearing the browser. The header carries the way out, and it differs
+by who is standing there: the office is visiting and goes back to its own
+pages, the forecourt signs the device out through a sheet of its own that says
+nothing is lost and warns that signing back in needs the office's password.
+
 **A form that saved must get out of the way.** `ActionForm` closes whatever
 disclosure it sits in — `Collapsible` or `EditableRow` provide the close through
 `DisclosureContext` — about a second after a save, long enough to read "Saved".
@@ -56,9 +95,9 @@ details. `pump_day()` and `pump_shift()` read those columns, so RLS, the
 `business_date` defaults and every screen move together — a setting that only
 changed one of them would be a bug. In TS the hours come off
 `session.station`, `pumpToday(session)` is the dated default on every page,
-and the two client components that need it are handed it as a prop. The
-counter never asks which shift it is: it reads the clock. The office still
-sees both on `/shifts`.
+and the client components that need it are handed it as a prop. `shiftAt()` is
+what the clock *suggests* on the counter's start sheet, never what it decides.
+The office still sees both on `/shifts`.
 
 **The pump's working day rolls when the day shift starts, not at midnight.** At 2am the forecourt
 is still working the shift that started last evening, and what it sells belongs
@@ -70,12 +109,23 @@ could see its own shift and not write to it between midnight and 7am, and a
 blocked insert says nothing. `credit_sales.business_date` and
 `expenses.business_date` default to it too.
 
+**What the forecourt records, the office sees.** The counter writes who worked
+a shift (`shift_fillers`), who started it and who handed it in
+(`shifts.opened_by_staff`, `closed_by_staff`) and the cash each filler counted
+— and for a while none of it reached an office screen, which made the counter
+work invisible to the people it was for. `/shifts` names them; `/shifts/[id]`
+draws its cash boxes from the shift's **own** fillers rather than the whole
+payroll, keeping anyone the office already recorded cash against so a figure
+can never be orphaned.
+
 **A shift has several fillers, and the meter belongs to the shift.** Any one of
 them reads it, so the counter does not ask who is holding the device before it
 will show anything. It asks only where the answer matters: an udhaar slip goes
 against whoever served the lorry, so that form asks "Who is serving?" at the
-moment it counts. A filler works one shift and there is no way from their
-screen into the other one.
+moment it counts, with the fillers on this shift as the answers. Who is on it
+is settled when the shift is started, because 6.55 on the forecourt is when it
+is known; `shift_fillers` can still be changed all shift from the Who-is-on
+tab.
 
 **Nothing on the counter is written in the first person.** The device is
 shared by everybody on the shift, so "My shift is finished" was a button
@@ -83,9 +133,18 @@ claiming the shift belonged to whoever happened to press it. It is *the* shift
 — the shift is finished, the shift is running — and anyone standing there can
 start it or close it. Same in the code: `finishShift`, not `closeMyShift`.
 
-**The counter is three tabs, because it is three errands.** *Shift* — start it,
-read the meters, see the hissab, finish it. *Who is on* — the fillers standing
-there. *Udhaar* — the slips written during it.
+**The counter is three tabs, because it is three errands.** *Shift* — read the
+meters, see the hissab, count the cash, hand it in, in that order and shown as
+four steps with what is left to do. *Udhaar* — the slips written during it,
+each one correctable while the shift is still the filler's. *Who is on* — the
+fillers standing there. The tabs sit along the bottom, where a thumb reaches
+them; starting a shift is not a tab, because it is what you do before there is
+anything to put in one.
+
+**The counter is read outdoors, so it is bigger and darker than the office.**
+Buttons around 60px, meter and cash boxes at 22px and up, and no grey lighter
+than `neutral-700` on the warm ground — `neutral-600` is 3.6:1 and fails.
+Nothing on it is `Card`-shaped office furniture: it is bands, steps and chips.
 
 **One reading per nozzle, taken at the start of the shift.** At 7am and again
 at 7pm somebody from the shift coming on walks the forecourt and writes down
@@ -104,13 +163,33 @@ the shift — changing the roster later does not rewrite who was standing there.
 Somebody covering a colleague is added on the device and marked `covering`,
 because that is decided on the forecourt at 6.55am, not in the office.
 
+**A roster can rotate instead of being fixed.** Some pumps swap their fillers
+between day and night every week rather than keeping each on one shift
+forever, so `staff.rotates` carries that in place of a fixed `default_shift` —
+`rotation_role` and `rotation_set_on` say what shift they were on as of one
+week, and `rotation_effective_role()` works out every other week from that by
+counting weeks and flipping on the odd ones. The swap happens on Sunday, and
+not by both crews changing places cleanly: the crew finishing the week on
+days works Sunday's night shift too, and that shift already belongs to their
+new week, not their old one — so the outgoing night crew has that Sunday off
+rather than working it, and `staff_is_rostered()` is the one place both the
+seeding trigger and `start_shift()`'s `covering` flag ask, so they cannot
+disagree about it. `rotationRoleOn()` and `rosterIncludes()` mirror the same
+rule in TypeScript, purely so the counter's start sheet can suggest the right
+names — the trigger is still what actually decides who is on a shift.
+
 **The dip is per tank, not per nozzle.** Nozzles have meters; tanks have dips.
 
-**The shift is the filler's until the office agrees it.** A filler opens and
-closes their own shift on the counter (`close_shift`, `reopen_shift`) — they are
-the one who handed the money over. Their readings and handover stay theirs to
-correct while the shift is anything but `approved`; the counter's RLS reads that
-status, not `open`. `approve_shift()` is the office's act and the line: past it
+**The shift is the filler's until the office agrees it.** A filler starts and
+closes their own shift on the counter (`start_shift`, `close_shift`,
+`reopen_shift`) — they are the one who handed the money over, and the shift
+records both names in `opened_by_staff` and `closed_by_staff`, which are staff
+rows and not `profiles`: the counter login is one shared row for the whole
+forecourt and names nobody. A slip written wrong is theirs to correct too
+(`credit_counter_update`), until the office agrees the shift or the slip goes
+on a bill. Their readings and their handover stay theirs
+to correct while the shift is anything but `approved`; the counter's RLS reads
+that status, not `open`. `approve_shift()` is the office's act and the line: past it
 only an owner or manager can reopen. Approving is a shift, not a day — the day
 lock in `day_closings` is separate and still applies on top.
 
@@ -164,15 +243,56 @@ nothing. `v_unattached_udhaar` still exists for slips written before this rule.
 account are the pump's, not the person's, so `shift_collections` rows with a
 `staff_id` carry `cash_amount` alone — a check constraint says so. The other
 modes go on the shift's own row, the one with no filler against it, entered on
-the money log. Both rows are counted together.
+the money log. Both rows are counted together. The cash itself is typed on the
+counter by the people who counted the notes, through `record_shift_cash()`,
+which refuses a name that was not on the shift and never touches the shift's
+own row; it was always allowed by the policies and for a long time no screen
+offered it, so the figure was typed in the office by somebody who had not
+handled the money.
+
+**The cash total is counted, not typed.** A filler does not arrive at a
+figure; they count what is in the box — so many 500s, so many 100s, down to
+the coins — and the total is whatever that comes to. `shift_cash_denominations`
+holds the count per note and coin, and `record_shift_cash_count()` is the only
+way in: it adds them up itself and writes that onto `shift_collections.
+cash_amount`, so the figure everything else already reads (the money log, day
+close, `v_staff_work`) can never be a number nobody's notes and coins actually
+add to. A shift counted before this existed carries a plain total with no
+denominations behind it — real money, just not yet broken down — and the
+counter says so rather than showing it as nothing counted.
 
 **Test fuel goes back in the tank.** `litres = closing − opening − test`, and
 test litres are not deducted from stock.
 
 **The manager must never see purchase cost or margin.** Cost lives in
 `fuel_purchase_costs`, which has an owner-only RLS policy, and margin comes only
-from `margin_report()`, which raises for anyone else. Keep them there — do not
-denormalise a rate onto `fuel_purchases`, `fuel_prices` or any view.
+from `margin_report()`, `margin_by_fuel()` and `fuel_cost_flow()`, which raise
+for anyone else. Keep them there — do not denormalise a rate onto
+`fuel_purchases`, `fuel_prices` or any view.
+
+**What the fuel sold cost is not what this month's tankers cost.** Sixteen or
+seventeen tankers arrive a month, on no schedule, because they come when the
+tanks need them — so the litres that arrive in a window and the litres that
+leave in it are never the same. Subtracting one from the other made a month
+that caught two extra loads read as a catastrophe, a day with a tanker in it
+worse, and a day without one show no margin at all. `fuel_cost_flow()` carries
+a running cost per fuel, moved at each arrival by
+`(stock × old cost + litres in × rate paid) ÷ (stock + litres in)`, and values
+the litres **sold** at the cost of the stock they came out of. Tanker spend
+stays in the report as `purchase_cost`, labelled as the cash it is, and is
+never subtracted from sales.
+
+**Money adds across the fuels; quantity does not.** Petrol and diesel are
+litres and CNG is kilograms, so a rate per "unit" that has added the two
+together is a number about nothing. `sales_value`, `cost_of_sales` and
+`gross_profit` cover all three; `litres_sold` and every per-litre rate cover
+the liquid fuels, and `kg_sold` sits beside them.
+
+**A cost nobody has recorded is unknown, not zero.** A fuel with no priced
+tanker behind it reports `cost_of_sales` null and `cost_known` false, and is
+counted in `fuels_without_cost` so the screen can name it. Zero would report
+the whole sale as profit, which is the most flattering lie the report could
+tell.
 
 **Money is computed in Postgres, never in the client.** Amounts are generated
 columns or SQL functions. The client formats; it does not calculate what is owed.
@@ -238,7 +358,10 @@ today.
 `tanks`, `nozzles` and `cng_dispensers` are owner-write, back-office-read, and
 a trigger refuses to delete one that has already priced a sale — retire it with
 `is_active`. `fuel_prices` stays writable by the manager, because pump prices
-move daily.
+move daily. The equipment lives at `/settings/equipment`; `/settings` is the
+pump itself — its name, what it prints on a bill, and when its shifts change
+over. They were one page of six unrelated ideas, and a door whose contents do
+not match its name is the junk drawer this app already split once.
 
 **Every write is audited by a trigger, not by the app.** `audit_write()` is
 attached to every business table, so a new screen cannot forget to log. Updates

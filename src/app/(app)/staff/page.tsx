@@ -1,8 +1,9 @@
 import { requireBackOffice , pumpToday } from '@/lib/auth'
+import { rotationRoleOn, shiftLabel } from '@/lib/shifts'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import {formatDate, money, monthEnd} from '@/lib/format'
-import type { Staff, StaffPayment } from '@/lib/database.types'
+import type { Staff, StaffPayment, StaffWork } from '@/lib/database.types'
 import {
   Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th,
 } from '@/components/ui'
@@ -31,7 +32,7 @@ export default async function StaffPage({
   const today = pumpToday(session)
   const month = (await searchParams).month || today.slice(0, 7)
 
-  const [staffRes, paymentsRes] = await Promise.all([
+  const [staffRes, paymentsRes, workRes] = await Promise.all([
     supabase.from('staff').select('*').order('is_active', { ascending: false }).order('name'),
     supabase
       .from('staff_payments')
@@ -39,11 +40,16 @@ export default async function StaffPage({
       .gte('payment_date', `${month}-01`)
       .lte('payment_date', monthEnd(`${month}-01`))
       .order('payment_date', { ascending: false }),
+    // What the counter has recorded about each of them this month.
+    supabase.from('v_staff_work').select('*'),
   ])
 
   const staff = (staffRes.data ?? []) as Staff[]
   const active = staff.filter((s) => s.is_active)
+  const departed = staff.filter((s) => !s.is_active)
   const payments = (paymentsRes.data ?? []) as unknown as PaymentRow[]
+  const work = (workRes.data ?? []) as StaffWork[]
+  const workOf = (id: string) => work.find((w) => w.staff_id === id)
 
   // A deduction reduces what is owed rather than adding to what was paid out.
   const paidOut = payments
@@ -55,10 +61,26 @@ export default async function StaffPage({
     <>
       <PageHeader title={t('staff.title')} action={<MonthPicker month={month} />} />
 
+      {/* Two salary figures sat side by side with nothing to say how they
+          related. One is what the pump owes every month; the other is what
+          actually went out of the box this one. */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <Stat label={t('staff.title')} value={String(active.length)} />
-        <Stat label={t('staff.salary')} value={money(salaryBill)} hint="Per month" />
-        <Stat label={t('staff.payments')} value={money(paidOut)} tone="accent" />
+        <Stat label={t('staff.workingHere')} value={String(active.length)} />
+        <Stat
+          label={t('staff.monthlyBill')}
+          value={money(salaryBill)}
+          hint={t('staff.monthlyBillHint')}
+        />
+        <Stat
+          label={t('staff.paidThisMonth')}
+          value={money(paidOut)}
+          hint={
+            salaryBill > 0
+              ? `${t('staff.ofTheBill')} ${Math.round((paidOut / salaryBill) * 100)}%`
+              : undefined
+          }
+          tone="accent"
+        />
       </div>
 
       <div className="mb-4 flex flex-col gap-3">
@@ -73,12 +95,12 @@ export default async function StaffPage({
       </div>
 
       <Card>
-        <CardHeader title={t('staff.title')} />
-        {staff.length === 0 ? (
+        <CardHeader title={t('staff.workingHere')} subtitle={t('staff.thisMonthHint')} />
+        {active.length === 0 ? (
           <Empty>{t('common.none')}</Empty>
         ) : (
           <div className="flex flex-col divide-y divide-divider">
-            {staff.map((m) => (
+            {active.map((m) => (
               <details key={m.id} className="group">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5">
                   <div className="min-w-0">
@@ -87,27 +109,91 @@ export default async function StaffPage({
                       {m.name_gu ? (
                         <span className="text-neutral-600">({m.name_gu})</span>
                       ) : null}
-                      {!m.is_active ? <Badge>Left</Badge> : null}
-                      {m.pin ? <Badge tone="accent">PIN set</Badge> : null}
                     </div>
-                    <div className="text-sm text-neutral-600">
-                      {[m.phone, m.joined_on ? formatDate(m.joined_on) : null]
-                        .filter(Boolean)
-                        .join(' · ') || '—'}
+                    {/* What the counter says they did, which the office could
+                        not see at all until now. */}
+                    <div className="tabular text-[12.5px] text-neutral-700">
+                      {(() => {
+                        const w = workOf(m.id)
+                        // "Normally on" has no single stored answer for a
+                        // rotating filler, so it is worked out for the week
+                        // being looked at rather than read off a column.
+                        const roster = m.rotates
+                          ? m.rotation_role && m.rotation_set_on
+                            ? rotationRoleOn(
+                                m.rotation_role as 'Day' | 'Night',
+                                m.rotation_set_on,
+                                today,
+                              )
+                            : null
+                          : m.default_shift
+                        const bits = [
+                          roster
+                            ? `${shiftLabel(t, roster)}${m.rotates ? ` (${t('staff.thisWeek').toLowerCase()})` : ''}`
+                            : null,
+                          w && w.shifts_this_month > 0
+                            ? `${w.shifts_this_month} ${
+                                w.shifts_this_month === 1 ? t('staff.shift') : t('staff.shifts')
+                              }`
+                            : t('staff.noShiftsThisMonth'),
+                          w && Number(w.cash_this_month) > 0
+                            ? `${t('shift.cashHandedOver')} ${money(w.cash_this_month)}`
+                            : null,
+                          w && w.slips_this_month > 0
+                            ? `${w.slips_this_month} ${t('credit.title').toLowerCase()}`
+                            : null,
+                          m.phone,
+                        ].filter(Boolean)
+                        return bits.join(' · ')
+                      })()}
                     </div>
                   </div>
-                  <div className="tabular shrink-0 text-right font-semibold">
-                    {money(m.monthly_salary)}
+                  <div className="shrink-0 text-right">
+                    <div className="tabular font-semibold">{money(m.monthly_salary)}</div>
+                    <div className="text-[12px] text-neutral-700">{t('staff.perMonth')}</div>
                   </div>
                 </summary>
                 <div className="border-t border-divider bg-neutral-200 p-4">
-                  <EditStaffForm member={m} />
+                  <EditStaffForm member={m} today={today} />
                 </div>
               </details>
             ))}
           </div>
         )}
       </Card>
+
+      {/* People who have left keep their name on shifts, slips and the audit
+          trail, so they stay in the book — but they are not the payroll. */}
+      {departed.length > 0 ? (
+        <div className="mt-4">
+          <Card>
+            <CardHeader title={t('staff.haveLeft')} subtitle={t('staff.haveLeftHint')} />
+            <div className="flex flex-col divide-y divide-divider">
+              {departed.map((m) => (
+                <details key={m.id} className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+                    <span className="min-w-0">
+                      <span className="font-medium text-neutral-800">{m.name}</span>
+                      {m.name_gu ? (
+                        <span className="ml-1 text-neutral-700">({m.name_gu})</span>
+                      ) : null}
+                      <span className="tabular ml-2 text-[12.5px] text-neutral-700">
+                        {workOf(m.id)?.last_worked
+                          ? `${t('staff.lastWorked')} ${formatDate(workOf(m.id)!.last_worked)}`
+                          : ''}
+                      </span>
+                    </span>
+                    <Badge>{t('staff.left')}</Badge>
+                  </summary>
+                  <div className="border-t border-divider bg-neutral-200 p-4">
+                    <EditStaffForm member={m} today={today} />
+                  </div>
+                </details>
+              ))}
+            </div>
+          </Card>
+        </div>
+      ) : null}
 
       <div className="mt-6">
         <Card>

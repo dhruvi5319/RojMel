@@ -62,7 +62,7 @@ export function SubmitDayForm({
 export function ApproveDayForm({ date }: { date: string }) {
   const t = useT()
   return (
-    <ActionForm action={approveDay} onDone={t('day.approved')}>
+    <ActionForm action={approveDay} onDone={t('day.approved')} alwaysReady>
       <input type="hidden" name="business_date" value={date} />
       <Field label={t('day.remarks')} hint={t('common.optional')}>
         <Textarea name="remarks" rows={2} />

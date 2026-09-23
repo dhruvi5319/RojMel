@@ -84,7 +84,7 @@ export default async function InvoicesPage() {
             <thead>
               <tr>
                 <Th>{t('inv.number')}</Th>
-                <Th>{t('cust.title')}</Th>
+                <Th>{t('common.name')}</Th>
                 <Th>{t('inv.period')}</Th>
                 <Th className="text-right">{t('common.total')}</Th>
                 <Th className="text-right">{t('cust.balance')}</Th>

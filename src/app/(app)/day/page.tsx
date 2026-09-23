@@ -9,6 +9,7 @@ import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th,
 } from '@/components/ui'
 import { PrintButton } from '@/components/PrintButton'
+import { Editable } from '@/components/Editable'
 import { ApproveDayForm, ReopenDayForm, SubmitDayForm } from './DayForms'
 
 export const dynamic = 'force-dynamic'
@@ -144,17 +145,90 @@ export default async function DayPage({
       </Card>
 
       {/* ------------------------------------------------------- actions -- */}
+      {/*
+        * Closing the day is two acts by two people, and the screen used to lay
+        * both forms out for whoever was looking — so the owner was shown the
+        * manager's cash-count form above his own, and the manager a button she
+        * cannot press. Each is now shown their own act, and the other side as
+        * something that has already happened.
+        */}
       <div className="no-print mt-5 grid gap-4 lg:grid-cols-2">
-        {!approved ? (
+        {!approved && !owner ? (
           <Card>
             <CardHeader title={t('day.submit')} subtitle={t('day.submitWho')} />
             <div className="p-5">
-              <SubmitDayForm
-                date={date}
-                expected={day?.expected_cash ?? 0}
-                counted={day?.counted_cash ?? null}
-                notes={day?.notes ?? null}
+              {/* Counted once, then read. A live field on a page you mostly
+                  come to check invites a sleeve to change it. */}
+              <Editable
+                label={t('day.countedCash')}
+                form={
+                  <SubmitDayForm
+                    date={date}
+                    expected={day?.expected_cash ?? 0}
+                    counted={day?.counted_cash ?? null}
+                    notes={day?.notes ?? null}
+                  />
+                }
+                view={
+                  day?.counted_cash == null ? (
+                    <div className="text-[14px] text-neutral-800">
+                      {t('day.notCountedYet')}
+                      <div className="tabular mt-1 text-[13px] text-neutral-700">
+                        {t('day.expectedCash')} {money(day?.expected_cash ?? 0)}
+                      </div>
+                    </div>
+                  ) : (
+                    <dl className="flex flex-wrap gap-x-8 gap-y-2">
+                      <Figure
+                        label={t('day.expectedCash')}
+                        value={money(day.expected_cash)}
+                      />
+                      <Figure label={t('day.countedCash')} value={money(day.counted_cash)} />
+                      <Figure
+                        label={t('day.difference')}
+                        value={money(cashDiff)}
+                        tone={Math.abs(cashDiff) < 0.5 ? 'ok' : 'danger'}
+                      />
+                      {day.notes ? (
+                        <div className="w-full text-[13px] text-neutral-800">{day.notes}</div>
+                      ) : null}
+                    </dl>
+                  )
+                }
               />
+            </div>
+          </Card>
+        ) : null}
+
+        {/* What the manager handed over: a fact for the owner to weigh, not a
+            form for him to fill in again. */}
+        {owner && status === 'submitted' ? (
+          <Card>
+            <CardHeader title={t('day.whatWasHandedOver')} subtitle={t('day.submitWho')} />
+            <div className="flex flex-col gap-2 p-5">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-neutral-800">{t('day.expectedCash')}</span>
+                <span className="tabular font-semibold">{money(day?.expected_cash ?? 0)}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-neutral-800">{t('day.countedCash')}</span>
+                <span className="tabular font-semibold">{money(day?.counted_cash ?? 0)}</span>
+              </div>
+              <div className="mt-1 flex items-baseline justify-between gap-3 border-t border-divider pt-3">
+                <span className="font-semibold">{t('day.difference')}</span>
+                <span
+                  className={`tabular text-[22px] font-bold ${
+                    Math.abs(cashDiff) < 0.5 ? 'text-accent-2-800' : 'text-danger'
+                  }`}
+                >
+                  {money(cashDiff)}
+                </span>
+              </div>
+              {day?.notes ? (
+                <p className="mt-2 rounded-2xl bg-neutral-100 px-4 py-3 text-[13.5px] leading-relaxed">
+                  {day.notes}
+                </p>
+              ) : null}
             </div>
           </Card>
         ) : null}
@@ -166,7 +240,20 @@ export default async function DayPage({
               subtitle={approved ? t('day.locked') : t('day.approveWho')}
             />
             <div className="p-5">
-              {approved ? <ReopenDayForm date={date} /> : <ApproveDayForm date={date} />}
+              {approved ? (
+                <ReopenDayForm date={date} />
+              ) : status === 'submitted' ? (
+                <ApproveDayForm date={date} />
+              ) : (
+                /* Nothing to approve until she has handed it over. */
+                <div className="flex items-center gap-3">
+                  <Lock className="size-5 text-neutral-700" aria-hidden />
+                  <div>
+                    <div className="font-medium">{t('day.notHandedOverYet')}</div>
+                    <p className="mt-1 text-[13px] text-neutral-700">{t('day.submitWho')}</p>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
         ) : status === 'submitted' ? (
@@ -243,6 +330,29 @@ export default async function DayPage({
         </Card>
       </div>
     </>
+  )
+}
+
+function Figure({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string
+  tone?: 'ok' | 'danger'
+}) {
+  return (
+    <div>
+      <dt className="text-[11.5px] text-neutral-700">{label}</dt>
+      <dd
+        className={`tabular text-[19px] font-bold ${
+          tone === 'ok' ? 'text-accent-2-800' : tone === 'danger' ? 'text-danger' : ''
+        }`}
+      >
+        {value}
+      </dd>
+    </div>
   )
 }
 

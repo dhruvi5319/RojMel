@@ -553,6 +553,118 @@ check('counter writes a slip',
   assert(error, 'counter blocked from expenses', 'counter wrote an expense')
 }
 
+/* ------------------------------------ a filler starts the shift, and counts -- */
+console.log('\n--- the filler starts it, and answers for the cash ---')
+{
+  const filler = check('the filler list',
+    await counter.from('staff').select('id, name, is_active'))
+  // Only somebody still working here can be put on a shift.
+  const who = (filler ?? []).find((f) => f.is_active)
+
+  // Nothing runs until somebody presses start, and the book records the hour
+  // it really began and who began it.
+  const started = check('a filler starts the shift',
+    await counter.rpc('start_shift', {
+      p_name: 'Night', p_date: pumpDay, p_staff_id: who?.id, p_fillers: [who?.id],
+    }))
+  const shift = Array.isArray(started) ? started[0] : started
+  assert(shift?.status === 'open', '  it is running', `status ${shift?.status}`)
+  assert(shift?.opened_by_staff === who?.id, '  and names who started it',
+    `opened_by_staff ${shift?.opened_by_staff}`)
+
+  // Pressing start again is not a second shift.
+  const again = await counter.rpc('start_shift', { p_name: 'Night', p_date: pumpDay })
+  const same = Array.isArray(again.data) ? again.data[0] : again.data
+  assert(same?.id === shift?.id, '  pressing it twice is the same shift',
+    `${same?.id} vs ${shift?.id}`)
+
+  // Who is standing there is settled when it opens.
+  const on = check('  who is on it',
+    await counter.from('v_shift_fillers').select('*').eq('shift_id', shift.id))
+  assert(on?.length === 1, '  one filler on the shift', `got ${on?.length}`)
+
+  // The cash is typed by the person who counted the notes.
+  const total = check('the filler counts the cash',
+    await counter.rpc('record_shift_cash', {
+      p_shift_id: shift.id,
+      p_counts: [{ staff_id: who.id, cash_amount: 4321 }],
+    }))
+  assert(Number(total) === 4321, '  it comes to what was counted', `got ${total}`)
+
+  const rows = check('  and it is on the shift',
+    await counter.from('shift_collections').select('*').eq('shift_id', shift.id)
+      .not('staff_id', 'is', null))
+  assert(Number(rows?.[0]?.cash_amount) === 4321, '  as cash', `got ${rows?.[0]?.cash_amount}`)
+  assert(Number(rows?.[0]?.upi_amount) === 0 && Number(rows?.[0]?.card_amount) === 0,
+    '  and cash alone', 'a filler was given an account-settled mode')
+
+  // A name that was never on the shift cannot be given money to answer for.
+  const { error: strangerErr } = await counter.rpc('record_shift_cash', {
+    p_shift_id: shift.id,
+    p_counts: [{ staff_id: customer.id, cash_amount: 10 }],
+  })
+  assert(strangerErr != null, '  somebody not on the shift is refused',
+    'cash was recorded against a stranger')
+
+  // A slip written wrong is the filler's to put right while the shift is
+  // theirs — and never once it is on a bill.
+  const slip = check('  a slip on this shift',
+    await counter.from('credit_sales').insert({
+      business_date: pumpDay, customer_id: customer.id, shift_id: shift.id,
+      fuel_type_id: d1.fuel_type_id, quantity: 20, sale_rate: 89.2, slip_number: 'S-FIX',
+    }).select())
+  const fixed = check('  the filler fixes it',
+    await counter.from('credit_sales').update({ quantity: 25 })
+      .eq('id', slip[0].id).select('id, quantity'))
+  assert(Number(fixed?.[0]?.quantity) === 25, '  and the change stuck',
+    `quantity ${fixed?.[0]?.quantity}`)
+
+  await mgr.from('credit_sales').delete().eq('id', slip[0].id)
+  await counter.rpc('record_shift_cash', { p_shift_id: shift.id, p_counts: [] })
+}
+
+/* ------------------------------ what the fuel sold cost, not what arrived -- */
+console.log('\n--- margin survives an irregular tanker ---')
+{
+  const own = await signIn('father@test.in')
+
+  const report = check('margin_report', await own.rpc('margin_report', {
+    p_from: today, p_to: today,
+  }))
+  assert(report?.cost_of_sales != null, '  it reports the cost of what was sold',
+    'no cost_of_sales')
+  assert(report?.purchase_cost != null, '  and the tankers apart from it',
+    'no purchase_cost')
+  // The whole point: sales are not measured against whatever happened to
+  // arrive, so a day a tanker lands on is not a catastrophe.
+  assert(Number(report?.gross_profit) > 0, '  a day with a tanker still made money',
+    `gross_profit ${report?.gross_profit}`)
+
+  const perFuel = check('margin_by_fuel', await own.rpc('margin_by_fuel', {
+    p_from: today, p_to: today,
+  }))
+  assert(Array.isArray(perFuel) && perFuel.length > 0, '  one row per fuel',
+    `got ${perFuel?.length}`)
+  const unpriced = (perFuel ?? []).filter((f) => f.cost_known === false)
+  assert(unpriced.every((f) => f.cost_of_sales === null),
+    '  a fuel with no priced tanker costs null, not zero',
+    'an unpriced fuel was costed at zero')
+
+  // Reports prints the margin with its working under it. The rate that may
+  // be subtracted from is the one over the litres whose cost is known, not
+  // over every litre sold — with an unpriced fuel in the window those are
+  // different numbers, and the sum stopped coming to the answer above it.
+  if (report?.gross_margin_per_litre != null) {
+    const shown = Number(report.avg_sale_rate_priced) - Number(report.avg_cost_rate)
+    assert(Math.abs(shown - Number(report.gross_margin_per_litre)) < 1e-9,
+      '  the working comes to the margin above it',
+      `${report.avg_sale_rate_priced} - ${report.avg_cost_rate} is not ${report.gross_margin_per_litre}`)
+  }
+
+  const { error: mgrErr } = await mgr.rpc('margin_by_fuel', { p_from: today, p_to: today })
+  assert(mgrErr != null, '  and a manager cannot read any of it', 'the manager saw margin')
+}
+
 /* ─────────────────────────────── the four new requirements ───────────── */
 console.log('\n--- three fuels, four payment modes ---')
 

@@ -85,6 +85,18 @@ export function FuelForm() {
           <Input name="name_gu" placeholder="પેટ્રોલ" />
         </Field>
       </div>
+      {/* Litres or kilograms, chosen once here — the edit form only ever
+          shows it back, fixed, because a sale already priced against one
+          unit cannot be quietly remeasured in the other. Without a choice
+          here every fuel silently became litres, CNG included, and the CNG
+          page's own instructions ("add a fuel measured in kilograms") had no
+          way to be followed. */}
+      <Field label={t('set.unit')} hint={t('set.unitHint')} required>
+        <Select name="unit" defaultValue="L" required>
+          <option value="L">{t('set.unitLitres')}</option>
+          <option value="kg">{t('set.unitKg')}</option>
+        </Select>
+      </Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={t('set.currentRate')}>
           <NumberInput name="sale_rate" step="0.001" />

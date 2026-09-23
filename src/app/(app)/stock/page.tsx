@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import {formatDate, litres, money} from '@/lib/format'
 import type {
-  Delivery, FuelPurchaseCost, LastTax, Shift, Staff, Tank, TankStock,
+  Delivery, FuelPurchaseCost, FuelSupply, LastTax, Shift, Staff, Tank, TankCover,
 } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, TableWrap, Td, Th, rowClass,
@@ -30,10 +30,14 @@ export default async function StockPage() {
   const supabase = await createClient()
   const today = pumpToday(session)
 
-  const [stockRes, tanksRes, staffRes, deliveriesRes, shiftsRes, lastTaxRes] =
+  const [stockRes, tanksRes, supplyRes, staffRes, deliveriesRes, shiftsRes, lastTaxRes] =
     await Promise.all([
-    supabase.from('v_tank_stock').select('*').order('name'),
+    // Days of cover, not a percentage of a tank: twenty per cent of the
+    // diesel tank and of the petrol tank are very different amounts of
+    // trading, and neither says whether it reaches the next tanker.
+    supabase.from('v_tank_cover').select('*').order('name'),
     supabase.from('tanks').select('*').eq('is_active', true).order('name'),
+    supabase.from('v_fuel_supply').select('*').order('fuel_name'),
     supabase.from('staff').select('*').eq('is_active', true).order('name'),
     supabase
       .from('v_deliveries')
@@ -52,7 +56,8 @@ export default async function StockPage() {
     supabase.from('v_last_purchase_tax').select('*'),
   ])
 
-  const stock = (stockRes.data ?? []) as TankStock[]
+  const stock = (stockRes.data ?? []) as TankCover[]
+  const supply = (supplyRes.data ?? []) as FuelSupply[]
   const tanks = (tanksRes.data ?? []) as Tank[]
   const staff = (staffRes.data ?? []) as Staff[]
   const deliveries = (deliveriesRes.data ?? []) as unknown as DeliveryRow[]
@@ -85,8 +90,12 @@ export default async function StockPage() {
             ? Math.max(0, Math.min(100, (tk.book_stock_litres / tk.capacity_litres) * 100))
             : 0
           const variance = tk.last_dip_variance
+          // Two days is about one tanker's notice at this pump.
+          const days = tk.days_left
+          const urgent = days != null && days < 2
+          const soon = days != null && days < 4
           return (
-            <Card key={tk.tank_id} className="p-4">
+            <Card key={tk.tank_id} className={`p-4 ${urgent ? 'border-2 border-danger-200' : ''}`}>
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
                   <div className="font-semibold">{tk.name}</div>
@@ -96,10 +105,42 @@ export default async function StockPage() {
                   <div className="tabular text-xl font-semibold">
                     {litres(tk.book_stock_litres)}
                   </div>
-                  <div className="text-sm text-neutral-600">
+                  <div className="text-sm text-neutral-700">
                     {t('stock.capacity')}: {litres(tk.capacity_litres)}
                   </div>
                 </div>
+              </div>
+
+              {/* The question is not how full the tank is, it is how long the
+                  fuel lasts and whether that reaches the next tanker. */}
+              <div className="mb-3 flex items-end justify-between gap-3">
+                <div>
+                  {days == null ? (
+                    <div className="text-[13px] text-neutral-700">{t('stock.noRateYet')}</div>
+                  ) : (
+                    <div className="flex items-baseline gap-2">
+                      <span
+                        className={`tabular text-[30px] leading-none font-bold ${
+                          urgent ? 'text-danger' : soon ? 'text-accent-700' : 'text-accent-2-800'
+                        }`}
+                      >
+                        {days.toFixed(1)}
+                      </span>
+                      <span className="text-[14px] text-neutral-800">{t('stock.daysLeft')}</span>
+                    </div>
+                  )}
+                  {tk.litres_per_day > 0 ? (
+                    <div className="tabular mt-1 text-[12.5px] text-neutral-700">
+                      {t('stock.sellingAbout')} {litres(tk.litres_per_day)} {t('stock.aDay')}
+                      {tk.runs_out_on ? ` · ${t('stock.runsOut')} ${formatDate(tk.runs_out_on)}` : ''}
+                    </div>
+                  ) : null}
+                </div>
+                {urgent ? (
+                  <Badge tone="danger">{t('stock.orderATanker')}</Badge>
+                ) : soon ? (
+                  <Badge tone="accent">{t('stock.gettingLow')}</Badge>
+                ) : null}
               </div>
 
               <div
@@ -108,15 +149,22 @@ export default async function StockPage() {
                 aria-label={`${pct.toFixed(0)} percent full`}
               >
                 <div
-                  className={`h-full rounded-full ${pct < 20 ? 'bg-danger' : 'bg-accent'}`}
+                  className={`h-full rounded-full ${urgent ? 'bg-danger' : 'bg-accent'}`}
                   style={{ width: `${pct}%` }}
                 />
               </div>
 
               <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <dt className="text-neutral-600">{t('stock.delivery')}</dt>
-                  <dd className="tabular font-medium">{litres(tk.litres_received)}</dd>
+                  <dt className="text-neutral-700">{t('stock.lastTanker')}</dt>
+                  <dd className="tabular font-medium">
+                    {tk.last_delivery ? formatDate(tk.last_delivery) : '—'}
+                    {tk.days_since_delivery != null && tk.days_since_delivery > 0 ? (
+                      <span className="ml-1 text-neutral-700">
+                        ({tk.days_since_delivery} {t('stock.daysAgo')})
+                      </span>
+                    ) : null}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-neutral-600">{t('rep.sales')}</dt>
@@ -154,6 +202,43 @@ export default async function StockPage() {
           )
         })}
       </div>
+
+      {/* There is no delivery schedule to be behind: the tankers come when
+          the tanks need them. What helps is knowing the rhythm they have
+          actually been coming in. */}
+      {supply.length > 0 ? (
+        <Card className="mt-4 px-5 py-4">
+          <div className="text-[12px] font-bold tracking-[0.09em] text-neutral-700 uppercase">
+            {t('stock.howTankersCome')}
+          </div>
+          <div className="mt-3 flex flex-col gap-2.5">
+            {supply.map((f) => (
+              <div key={f.fuel_type_id} className="flex flex-wrap items-baseline gap-x-7 gap-y-1">
+                <span className="min-w-[5rem] font-semibold">{f.fuel_name}</span>
+                <span className="tabular text-[13.5px] text-neutral-800">
+                  {f.trips_this_month} {t('stock.tripsThisMonth').toLowerCase()}
+                </span>
+                {f.usual_gap_days != null ? (
+                  <span className="tabular text-[13.5px] text-neutral-800">
+                    {t('stock.usualGap')} {f.usual_gap_days} {t('common.days')}
+                  </span>
+                ) : null}
+                {f.longest_gap_days != null ? (
+                  <span className="tabular text-[13.5px] text-neutral-800">
+                    {t('stock.longestGap')} {f.longest_gap_days} {t('common.days')}
+                  </span>
+                ) : null}
+                {f.last_delivery ? (
+                  <span className="tabular text-[13.5px] text-neutral-700">
+                    {t('stock.lastTanker')} {formatDate(f.last_delivery)}
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[12.5px] text-neutral-700">{t('stock.noSchedule')}</p>
+        </Card>
+      ) : null}
 
       {tanks.length > 0 ? (
         <div className="mt-5 flex flex-col gap-3">

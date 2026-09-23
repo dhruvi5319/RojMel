@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useEffect, useRef } from 'react'
+import { createContext, useActionState, useContext, useEffect, useRef, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { useT } from '@/lib/i18n/client'
 import { Alert, Button } from '@/components/ui'
@@ -13,6 +13,24 @@ export type FormAction = (
   prev: FormState,
   data: FormData,
 ) => Promise<FormState>
+
+/*
+ * One object, not a fresh `{}` on every render.
+ *
+ * Server side a render-phase update re-invokes the component, and a literal
+ * passed to useActionState is built again each time — so "has the result
+ * changed?" stayed true, the state adjusted again, and React gave up with
+ * "Too many re-renders". Every page carrying a form answered 500.
+ */
+const NOTHING_YET: FormState = {}
+
+/**
+ * Whether anything in this form has been touched since it loaded or last
+ * saved. Null when the form has nothing a person can type into — a delete
+ * button, a toggle — where there is nothing to be dirty about and Save must
+ * stay live.
+ */
+const DirtyContext = createContext<boolean | null>(null)
 
 /** Submit button that knows when its own form is in flight. */
 export function SubmitButton({
@@ -29,12 +47,19 @@ export function SubmitButton({
 }) {
   const t = useT()
   const { pending } = useFormStatus()
+  const dirty = useContext(DirtyContext)
+
+  // A Save button that is live when there is nothing to save invites people
+  // to press it and wonder whether anything happened. It wakes when a field
+  // changes and goes back to sleep once the change is in.
+  const nothingToSave = dirty === false
+
   return (
     <Button
       type="submit"
       variant={variant}
       size={size}
-      disabled={pending || disabled}
+      disabled={pending || disabled || nothingToSave}
     >
       {pending ? t('common.saving') : (children ?? t('common.save'))}
     </Button>
@@ -53,6 +78,7 @@ export function ActionForm({
   resetOnSuccess = false,
   onSuccess,
   stayOpen = false,
+  alwaysReady = false,
 }: {
   action: FormAction
   children: React.ReactNode
@@ -64,10 +90,29 @@ export function ActionForm({
   onSuccess?: () => void
   /** For a form meant to be used again straight away. */
   stayOpen?: boolean
+  /** For a form with nothing to type into: a delete, a toggle, an approval. */
+  alwaysReady?: boolean
 }) {
-  const [state, formAction] = useActionState(action, {})
+  const [state, formAction] = useActionState(action, NOTHING_YET)
   const ref = useRef<HTMLFormElement>(null)
   const close = useCloseDisclosure()
+
+  /*
+   * Whether anything has been typed since this loaded or last saved. A form
+   * with nothing to type into — a delete button, an activate toggle — passes
+   * alwaysReady, because pressing it IS the change and there is nothing to be
+   * dirty about.
+   */
+  const [dirty, setDirty] = useState(false)
+
+  // Back to clean the moment a save lands: adjusting state during render is
+  // the supported way to derive it, and keeps it out of an effect. It settles
+  // only because NOTHING_YET is one object rather than a fresh one per render.
+  const [lastResult, setLastResult] = useState<FormState | null>(null)
+  if (state !== lastResult) {
+    setLastResult(state)
+    if (state.ok) setDirty(false)
+  }
 
   useEffect(() => {
     if (!state.ok) return
@@ -87,8 +132,16 @@ export function ActionForm({
   }, [resetOnSuccess, state])
 
   return (
-    <form ref={ref} action={formAction} className={className}>
-      {children}
+    <form
+      ref={ref}
+      action={formAction}
+      className={className}
+      onInput={() => setDirty(true)}
+      onChange={() => setDirty(true)}
+    >
+      <DirtyContext.Provider value={alwaysReady ? null : dirty}>
+        {children}
+      </DirtyContext.Provider>
       {state.error ? <Alert tone="danger">{state.error}</Alert> : null}
       {state.ok && onDone ? <Alert tone="ok">{onDone}</Alert> : null}
     </form>

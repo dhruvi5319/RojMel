@@ -10,8 +10,9 @@ import {
   Alert, Badge, Card, CardHeader, Empty, Kicker, LinkButton, PageHeader,
   TableWrap, Td, Th,
 } from '@/components/ui'
+import { Editable } from '@/components/Editable'
 import { MoneyForm } from './MoneyForm'
-import { VarianceForm } from './VarianceForm'
+import { VarianceForm, VarianceSaid } from './VarianceForm'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,11 +42,17 @@ export default async function MoneyLogPage({
       .select('*')
       .eq('business_date', date)
       .order('sort_order'),
-    // Whatever named fillers handed over on the shift screen; the money log
-    // writes the shift's own row and must not claim theirs.
+    // Whatever named fillers handed over — on the counter or on the shift
+    // screen; the money log writes the shift's own row and must not claim
+    // theirs. Narrowed to this day's shifts, or it loads every filler row the
+    // pump has ever written and throws all but a handful away.
     supabase
       .from('shift_collections')
-      .select('shift_id, staff_id, cash_amount, card_amount, upi_amount, bpcl_amount')
+      .select(
+        'shift_id, staff_id, cash_amount, card_amount, upi_amount, bpcl_amount, ' +
+          'shifts!inner(business_date), staff(name, name_gu)',
+      )
+      .eq('shifts.business_date', date)
       .not('staff_id', 'is', null),
     supabase
       .from('v_unattached_udhaar')
@@ -55,12 +62,14 @@ export default async function MoneyLogPage({
   ])
 
   const shifts = (moneyRes.data ?? []) as ShiftMoney[]
-  const fillerRows = (byFillerRes.data ?? []) as {
+  const fillerRows = (byFillerRes.data ?? []) as unknown as {
     shift_id: string
+    staff_id: string
     cash_amount: number
     card_amount: number
     upi_amount: number
     bpcl_amount: number
+    staff: { name: string; name_gu: string | null } | null
   }[]
   const fuels = (fuelRes.data ?? []) as ShiftFuelSale[]
 
@@ -225,7 +234,30 @@ export default async function MoneyLogPage({
                     <div className="rounded-[18px] border border-divider">
                       <TableWrap>
                         <tbody>
-                          <Mode label={t('mode.cash')} value={s.cash} />
+                          {/* Cash arrives in named hands — the counter records
+                              who counted what — and a shift that is short is
+                              only answerable if the screen says whose. */}
+                          {fillerRows
+                            .filter((r) => r.shift_id === s.shift_id)
+                            .map((r) => (
+                              <Mode
+                                key={r.staff_id}
+                                label={`${t('mode.cash')} · ${
+                                  (lang === 'gu' && r.staff?.name_gu) || r.staff?.name || '—'
+                                }`}
+                                value={r.cash_amount}
+                              />
+                            ))}
+                          {own.cash !== 0 || byFiller === 0 ? (
+                            <Mode
+                              label={
+                                fillerRows.some((r) => r.shift_id === s.shift_id)
+                                  ? `${t('mode.cash')} · ${t('money.notNamed')}`
+                                  : t('mode.cash')
+                              }
+                              value={own.cash}
+                            />
+                          ) : null}
                           <Mode label={t('mode.card')} value={s.card} />
                           <Mode label={t('mode.upi')} value={s.upi} />
                           <Mode label={t('mode.bpcl_card')} value={s.bpcl} />
@@ -267,35 +299,70 @@ export default async function MoneyLogPage({
                 </div>
 
                 {/* ────────────────────────────── writing the money in ──── */}
+                {/* The figures are above, in the table. This is the pencil for
+                    them, not a second copy of the page in input boxes. */}
                 <div className="border-t border-divider p-5">
-                  <Kicker>{t('money.step1')}</Kicker>
-                  <p className="mt-2 mb-3 max-w-prose text-[12.5px] text-neutral-600">
-                    {t('money.step1Hint')} {t('money.udhaarFromSlips')}
-                  </p>
-                  <MoneyForm
-                    shiftId={s.shift_id}
-                    cash={own.cash}
-                    card={own.card}
-                    upi={own.upi}
-                    bpcl={own.bpcl}
-                    udhaar={Number(s.udhaar)}
-                    sold={Number(s.total_sale)}
-                    byFiller={byFiller}
+                  <Editable
+                    label={t('money.step1')}
+                    form={
+                      <>
+                        <p className="mb-3 max-w-prose text-[12.5px] text-neutral-700">
+                          {t('money.step1Hint')} {t('money.udhaarFromSlips')}
+                        </p>
+                        <MoneyForm
+                          shiftId={s.shift_id}
+                          cash={own.cash}
+                          card={own.card}
+                          upi={own.upi}
+                          bpcl={own.bpcl}
+                          udhaar={Number(s.udhaar)}
+                          sold={Number(s.total_sale)}
+                          byFiller={byFiller}
+                        />
+                      </>
+                    }
+                    view={
+                      <div>
+                        <Kicker>{t('money.step1')}</Kicker>
+                        <p className="tabular mt-2 text-[13px] text-neutral-800">
+                          {t('mode.card')} {money(own.card)} · {t('mode.upi')} {money(own.upi)} ·{' '}
+                          {t('mode.bpcl_card')} {money(own.bpcl)}
+                        </p>
+                      </div>
+                    }
                   />
                 </div>
 
                 {/* ───────────────────────── the difference, written down ── */}
                 <div className="border-t border-divider p-5">
-                  <Kicker>{t('money.step2')}</Kicker>
-                  <p className="mt-2 mb-3 max-w-prose text-[12.5px] text-neutral-600">
-                    {t('money.step2Hint')}
-                  </p>
-                  <VarianceForm
-                    shiftId={s.shift_id}
-                    difference={diff}
-                    note={s.variance_note}
-                    recorded={recorded}
-                    recordedAmount={s.variance_amount}
+                  <Editable
+                    label={t('money.signOff')}
+                    view={
+                      <div>
+                        <Kicker>{t('money.step2')}</Kicker>
+                        <VarianceSaid
+                          className="mt-2"
+                          difference={diff}
+                          note={s.variance_note}
+                          recorded={recorded}
+                          recordedAmount={s.variance_amount}
+                        />
+                      </div>
+                    }
+                    form={
+                      <>
+                        <p className="mb-3 max-w-prose text-[12.5px] text-neutral-700">
+                          {t('money.step2Hint')}
+                        </p>
+                        <VarianceForm
+                          shiftId={s.shift_id}
+                          difference={diff}
+                          note={s.variance_note}
+                          recorded={recorded}
+                          recordedAmount={s.variance_amount}
+                        />
+                      </>
+                    }
                   />
                 </div>
               </Card>

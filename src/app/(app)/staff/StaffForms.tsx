@@ -1,14 +1,65 @@
 'use client'
 
+import { useState } from 'react'
 import { useT } from '@/lib/i18n/client'
 import type { PaymentMode, Staff, StaffPaymentType } from '@/lib/database.types'
 import { Field, Input, NumberInput, Select, Textarea } from '@/components/ui'
-import { SHIFTS } from '@/lib/shifts'
+import { rotationRoleOn, SHIFTS } from '@/lib/shifts'
 import { ActionForm, SubmitButton } from '@/components/ActionForm'
 import { addStaff, payStaff, updateStaff } from './actions'
 
 const MODES: PaymentMode[] = ['cash', 'upi', 'bank_transfer', 'cheque']
 const TYPES: StaffPaymentType[] = ['salary', 'advance', 'bonus', 'deduction']
+
+
+/**
+ * "Normally on" is one control with three shapes: nothing fixed, a fixed Day
+ * or Night, or rotating weekly — and rotating asks a second question,
+ * which shift they are on right now, because that is the one thing the
+ * system cannot work out for you the first time it is told.
+ */
+function NormallyOnField({
+  initialMode,
+  initialWeek,
+}: {
+  initialMode: '' | 'Day' | 'Night' | 'rotate'
+  /** ignored unless initialMode is 'rotate' */
+  initialWeek: 'Day' | 'Night'
+}) {
+  const t = useT()
+  const [mode, setMode] = useState(initialMode)
+
+  return (
+    <>
+      <Field label={t('staff.normallyOn')} hint={mode === 'rotate' ? undefined : t('staff.normallyOnHint')}>
+        <Select
+          name="shift_mode"
+          value={mode}
+          onChange={(e) => setMode(e.target.value as typeof mode)}
+        >
+          <option value="">—</option>
+          {SHIFTS.map((sh) => (
+            <option key={sh.name} value={sh.name}>
+              {t(sh.key)}
+            </option>
+          ))}
+          <option value="rotate">{t('staff.rotates')}</option>
+        </Select>
+      </Field>
+      {mode === 'rotate' ? (
+        <Field label={t('staff.thisWeek')} hint={t('staff.thisWeekHint')} required>
+          <Select name="rotation_this_week" defaultValue={initialWeek} required>
+            {SHIFTS.map((sh) => (
+              <option key={sh.name} value={sh.name}>
+                {t(sh.key)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
+    </>
+  )
+}
 
 export function AddStaffForm() {
   const t = useT()
@@ -34,16 +85,7 @@ export function AddStaffForm() {
         </Field>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t('staff.normallyOn')} hint={t('staff.normallyOnHint')}>
-          <Select name="default_shift" defaultValue="">
-            <option value="">—</option>
-            {SHIFTS.map((sh) => (
-              <option key={sh.name} value={sh.name}>
-                {t(sh.key)}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        <NormallyOnField initialMode="" initialWeek="Day" />
         <Field label={t('staff.pin')} hint={t('staff.pinHint')}>
           <Input name="pin" inputMode="numeric" maxLength={4} pattern="\d{4}" />
         </Field>
@@ -55,8 +97,13 @@ export function AddStaffForm() {
   )
 }
 
-export function EditStaffForm({ member }: { member: Staff }) {
+export function EditStaffForm({ member, today }: { member: Staff; today: string }) {
   const t = useT()
+  const initialMode = member.rotates ? 'rotate' : ((member.default_shift ?? '') as '' | 'Day' | 'Night')
+  const initialWeek =
+    member.rotates && member.rotation_role && member.rotation_set_on
+      ? rotationRoleOn(member.rotation_role as 'Day' | 'Night', member.rotation_set_on, today)
+      : 'Day'
   return (
     <ActionForm action={updateStaff} onDone={t('counter.done')}>
       <input type="hidden" name="id" value={member.id} />
@@ -92,17 +139,10 @@ export function EditStaffForm({ member }: { member: Staff }) {
       <div className="grid gap-4 sm:grid-cols-2">
         {/* Which shift this filler normally works. The shift is seeded from
             this when it opens; changing it afterwards does not rewrite who
-            was standing there. */}
-        <Field label={t('staff.normallyOn')} hint={t('staff.normallyOnHint')}>
-          <Select name="default_shift" defaultValue={member.default_shift ?? ''}>
-            <option value="">—</option>
-            {SHIFTS.map((sh) => (
-              <option key={sh.name} value={sh.name}>
-                {t(sh.key)}
-              </option>
-            ))}
-          </Select>
-        </Field>
+            was standing there. A rotating filler's pre-filled answer here is
+            always today's already-correct one, so re-saving without touching
+            it changes nothing about which weeks come out Day or Night. */}
+        <NormallyOnField initialMode={initialMode} initialWeek={initialWeek} />
       </div>
       <label className="flex items-center gap-2">
         <input

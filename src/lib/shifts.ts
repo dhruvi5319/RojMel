@@ -85,6 +85,53 @@ export function shiftHours(name: string, hours: ShiftHours = DEFAULT_HOURS): str
     : `${clock(hours.night_starts_at)} – ${clock(hours.day_starts_at)}`
 }
 
+/** Monday of the ISO week containing a 'YYYY-MM-DD' business date. */
+export function weekStartOf(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  const dow = d.getUTCDay() // 0 = Sunday
+  d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1))
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * The shift a rotating filler is on for the week containing `date`, given
+ * their role as of the week containing `setOn` — mirrors
+ * rotation_effective_role() in SQL. It is what the counter's start sheet
+ * suggests and what the staff page shows for "this week"; the trigger that
+ * actually seeds shift_fillers runs the same rule in the database, so this
+ * can be wrong for a moment on screen and never wrong in the book.
+ */
+export function rotationRoleOn(role: 'Day' | 'Night', setOn: string, date: string): 'Day' | 'Night' {
+  const weeks = (Date.parse(`${weekStartOf(date)}T00:00:00Z`) - Date.parse(`${weekStartOf(setOn)}T00:00:00Z`))
+    / (7 * 86400000)
+  const same = ((Math.round(weeks) % 2) + 2) % 2 === 0
+  return same ? role : role === 'Day' ? 'Night' : 'Day'
+}
+
+/**
+ * Whether a filler is normally on a named shift on a date — mirrors
+ * staff_is_rostered() in SQL, Sunday handover included. Used only to decide
+ * which boxes the counter's start sheet pre-ticks; the shift actually seeds
+ * from the database function, not from this.
+ */
+export function rosterIncludes(
+  member: {
+    default_shift: string | null
+    rotates?: boolean
+    rotation_role?: string | null
+    rotation_set_on?: string | null
+  },
+  shiftName: string,
+  date: string,
+): boolean {
+  if (!member.rotates) return member.default_shift === shiftName
+  if (!member.rotation_role || !member.rotation_set_on) return false
+  const effective = rotationRoleOn(member.rotation_role as 'Day' | 'Night', member.rotation_set_on, date)
+  const isSunday = new Date(`${date}T00:00:00Z`).getUTCDay() === 0
+  if (isSunday && shiftName === 'Night') return effective === 'Day'
+  return effective === shiftName
+}
+
 /**
  * A stored shift name in the reader's language. The name in the database is
  * the pump's word ('Day'); the screen shows 'Day shift' or 'દિવસ શિફ્ટ'. An

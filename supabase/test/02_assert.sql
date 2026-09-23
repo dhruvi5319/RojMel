@@ -93,11 +93,12 @@ select assert_eq(pump_day('2026-09-20 07:00+05:30'::timestamptz), '2026-09-20'::
 select assert_eq(pump_day('2026-09-20 23:30+05:30'::timestamptz), '2026-09-20'::date,
                  'and the night shift before midnight is still that day');
 
--- ------------------------------ one reading, taken at the start of a shift ---
--- How it is actually done: at 7am and again at 7pm somebody from the shift
--- coming on walks the forecourt and writes down what every nozzle says. That
--- one set of numbers opens their shift and closes the one going off, so the
--- app takes it once and puts it in both places.
+-- ------------------------- record_meter_reading(), superseded but kept ------
+-- 0035's one-walk-at-the-start function still exists and nothing has changed
+-- its behaviour, so this stays as a regression check on it. The app itself
+-- calls record_shift_closing() now (below) — the filler finishing writes
+-- their own closing, and start_shift() inherits it for whoever comes next,
+-- because waiting for the next filler to show up was never really optional.
 do $do$
 declare v_day uuid; v_night uuid; v_nz uuid;
 begin
@@ -138,6 +139,68 @@ select assert_eq((select litres from nozzle_readings
                                       where business_date = current_date and name = 'Night')
                      and nozzle_id = (select id from nozzles where name = 'P1')),
                  0.000::numeric, 'and it has sold nothing yet');
+
+-- ------------------------ the shift that is finishing closes itself ---------
+-- A filler cannot wait on whoever is coming on next to settle their own
+-- hissab, so the closing reading is theirs to take, and the next shift
+-- simply inherits it the moment it opens — nobody re-walks a number nothing
+-- has moved.
+do $do$
+declare v_d1 uuid; v_d2 uuid; v_nz uuid; v_far date := current_date + 100;
+begin
+  select id into v_nz from nozzles where name = 'D1';
+
+  select id into v_d1 from start_shift('Day', v_far);
+  perform record_shift_closing(v_d1,
+    jsonb_build_array(jsonb_build_object('nozzle_id', v_nz, 'reading', 90000)));
+
+  select id into v_d2 from start_shift('Night', v_far);
+end
+$do$;
+
+select assert_eq((select confirmed from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date + 100 and name = 'Day')
+                     and nozzle_id = (select id from nozzles where name = 'D1')),
+                 true, 'closing it yourself marks it confirmed');
+select assert_eq((select opening_reading from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date + 100 and name = 'Night')
+                     and nozzle_id = (select id from nozzles where name = 'D1')),
+                 90000.000::numeric,
+                 'the next shift opens on exactly what the last one closed at');
+select assert_eq((select confirmed from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date + 100 and name = 'Night')
+                     and nozzle_id = (select id from nozzles where name = 'D1')),
+                 false,
+                 'but inherited is not the same as somebody having actually looked — '
+                 'nobody has confirmed the night shift''s own reading yet');
+
+-- The filler finishing the night shift closes it themselves too, and it
+-- never reaches back to touch the day shift it opened from.
+select record_shift_closing(
+    (select id from shifts where business_date = current_date + 100 and name = 'Night'),
+    jsonb_build_array(jsonb_build_object('nozzle_id',
+      (select id from nozzles where name = 'D1'), 'reading', 90400)));
+select assert_eq((select litres from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date + 100 and name = 'Night')
+                     and nozzle_id = (select id from nozzles where name = 'D1')),
+                 400.000::numeric, 'the night shift sold what it actually sold');
+select assert_eq((select closing_reading from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date + 100 and name = 'Day')
+                     and nozzle_id = (select id from nozzles where name = 'D1')),
+                 90000.000::numeric,
+                 'closing the night shift never rewrites the day shift''s own closing');
+
+-- A meter cannot go backwards, whoever is closing it.
+select assert_raises($$ select record_shift_closing(
+    (select id from shifts where business_date = current_date + 100 and name = 'Night'),
+    jsonb_build_array(jsonb_build_object('nozzle_id',
+      (select id from nozzles where name = 'D1'), 'reading', 100))) $$,
+  'a closing reading below the opening');
 
 -- ------------------------------------------------ two shifts, day and night --
 -- The pump runs two, and a slip belongs to one of them: udhaar not on a shift
@@ -245,11 +308,29 @@ select assert_eq((select count(*) from invoices),      0::bigint, 'counter sees 
 select assert_eq((select count(*) from fuel_purchase_costs), 0::bigint, 'counter sees no costs');
 select assert_eq((select count(*) from v_customer_balances), 0::bigint, 'counter sees no balances');
 
+-- pump_day(), not current_date: the counter's RLS gates this write on the
+-- pump's own working day, which is still yesterday's before day_starts_at —
+-- current_date already rolled over then, and the two disagreeing for a few
+-- hours every night is exactly the case this line means to write through.
 insert into credit_sales (business_date, customer_id, fuel_type_id, quantity, sale_rate, slip_number)
-  values (current_date, 'c1111111-0000-0000-0000-000000000001',
+  values (pump_day(), 'c1111111-0000-0000-0000-000000000001',
           'f1111111-0000-0000-0000-000000000002', 50, 89.200, 'S-002');
 select assert_eq((select count(*) from credit_sales), 2::bigint, 'counter can write a slip');
 select assert_raises($$ insert into expenses (category, amount) values ('x', 1) $$, 'counter writing an expense');
+
+-- The card machine and the UPI QR are handled at the nozzle, by whoever is
+-- serving, so the counter writes this shift's own figure for them too — not
+-- a per-filler one, the shift's row, the one with no name against it.
+insert into shift_collections (shift_id, staff_id, card_amount, upi_amount, bpcl_amount)
+  values ('11111111-0000-0000-0000-0000000000c1', null, 500, 300, 0)
+  on conflict (shift_id, staff_id) do update
+    set card_amount = excluded.card_amount, upi_amount = excluded.upi_amount;
+select assert_eq((select card_amount from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1' and staff_id is null),
+                 500.00::numeric, 'the counter can write the shift''s own card total');
+select assert_eq((select upi_amount from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1' and staff_id is null),
+                 300.00::numeric, 'and its UPI total');
 rollback;
 
 -- --------------------------------------------------------------- OWNER ----
@@ -258,10 +339,72 @@ set local role authenticated;
 set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
 
 select assert_eq((select count(*) from fuel_purchase_costs), 1::bigint, 'owner sees purchase costs');
-select assert_eq((margin_report(current_date, current_date)->>'avg_purchase_rate')::numeric,
-                 84.000::numeric, 'owner sees the buying rate');
 select assert_eq((margin_report(current_date, current_date)->>'avg_sale_rate')::numeric,
                  91.271::numeric, 'owner sees the average selling rate');
+
+-- ---------------------------------- what the fuel SOLD cost, not what arrived --
+-- The tanker on this day brought 5,970 L at 84.000 and cost 5,01,480. Only 500 L
+-- of diesel went out. The old report subtracted the whole tanker from the day's
+-- sales and called the difference a loss; tankers come when the tanks need them,
+-- sixteen or seventeen a month, so that number meant nothing.
+select assert_eq((select cost_of_sales from margin_by_fuel(current_date, current_date)
+                   where fuel_name = 'Diesel'),
+                 42000.00::numeric, 'the diesel sold cost 500 L at 84.000');
+select assert_eq((select margin_per_unit from margin_by_fuel(current_date, current_date)
+                   where fuel_name = 'Diesel'),
+                 5.200::numeric, 'so the margin is 89.20 less 84.00');
+select assert_eq((margin_report(current_date, current_date)->>'cost_of_sales')::numeric,
+                 42000.00::numeric, 'the day''s cost of sales');
+select assert_eq((margin_report(current_date, current_date)->>'gross_profit')::numeric,
+                 29674.00::numeric, 'and the day made money, tanker or no tanker');
+-- The tanker is still reported, as the cash it is.
+select assert_eq((margin_report(current_date, current_date)->>'purchase_cost')::numeric,
+                 501480.00::numeric, 'what the tankers cost is kept, apart');
+select assert_eq((margin_report(current_date, current_date)->>'litres_bought')::numeric,
+                 5970.000::numeric, 'and the litres they brought');
+
+-- The cost carries to a day no tanker comes, which is most days.
+insert into shifts (id, station_id, business_date, name, sort_order, status)
+  values ('11111111-0000-0000-0000-0000000000d9', '11111111-1111-1111-1111-111111111111',
+          current_date + 1, 'Day', 1, 'open');
+insert into nozzle_readings (station_id, shift_id, nozzle_id, opening_reading,
+                             closing_reading, test_litres, sale_rate)
+  values ('11111111-1111-1111-1111-111111111111', '11111111-0000-0000-0000-0000000000d9',
+          '11111111-0000-0000-0000-0000000000d1', 5500, 5600, 0, 89.200);
+select assert_eq((select unit_cost from fuel_cost_flow('f1111111-0000-0000-0000-000000000002')
+                   where on_date = current_date + 1),
+                 84.0000::numeric, 'a day with no tanker still knows what its fuel cost');
+select assert_eq((margin_report(current_date + 1, current_date + 1)
+                    ->>'gross_margin_per_litre')::numeric,
+                 5.200::numeric, 'and still has a margin, where before it had none');
+
+-- A fuel nobody has priced a tanker for is not free fuel. Petrol has no cost
+-- row in this pump's books, so it is left out of the cost figures and counted,
+-- rather than averaged in at nothing and reported as pure profit.
+select assert_eq((select cost_of_sales from margin_by_fuel(current_date, current_date)
+                   where fuel_name = 'Petrol'),
+                 null::numeric, 'a fuel with no priced tanker has no cost, not zero');
+select assert_eq((select cost_known from margin_by_fuel(current_date, current_date)
+                   where fuel_name = 'Petrol'),
+                 false, 'and says so');
+select assert_eq((margin_report(current_date, current_date)->>'fuels_without_cost')::int,
+                 2::int, 'the report counts what it cannot speak for');
+-- but the litres still sold, and the selling rate still covers all of them
+select assert_eq((margin_report(current_date, current_date)->>'litres_sold')::numeric,
+                 698.000::numeric, 'not knowing a cost does not unsell the litres');
+
+-- Reports shows the margin as a subtraction, and the two rates it subtracts
+-- have to be over the same litres. Petrol is unpriced in this window, so the
+-- average over everything sold (91.271) is not the one that may be taken
+-- away from: the priced slice is 500 L of diesel at 89.200, and 89.200 less
+-- 84.000 is the 5.200 printed above the sum.
+select assert_eq((margin_report(current_date, current_date)->>'avg_sale_rate_priced')::numeric,
+                 89.200::numeric, 'the selling rate over the litres whose cost is known');
+select assert_eq(
+  (margin_report(current_date, current_date)->>'avg_sale_rate_priced')::numeric
+    - (margin_report(current_date, current_date)->>'avg_cost_rate')::numeric,
+  (margin_report(current_date, current_date)->>'gross_margin_per_litre')::numeric,
+  'and the working on the screen comes to the answer above it');
 
 -- Invoicing the month's slips.
 -- Run the insert to completion before reading it back: a statement's snapshot
@@ -285,6 +428,11 @@ select assert_eq((select status::text from invoices limit 1), 'paid', 'invoice s
 rollback;
 
 -- ----------------------------------------------- APPROVAL LOCKS THE DAY ----
+-- The seed's day_closings row lives at current_date (01_seed.sql), so the
+-- approval and the lookups here stay on current_date too — but expenses.
+-- business_date defaults to pump_day(), which is still yesterday's before
+-- day_starts_at, so the inserts below say business_date explicitly rather
+-- than trust the default to land on the day just approved.
 begin;
 set local role authenticated;
 set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -292,13 +440,14 @@ select approve_day(current_date, 'Checked with manager, all tallied');
 select assert_eq((select status::text from day_closings where business_date = current_date),
                  'approved', 'day approved');
 set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
-select assert_raises($$ insert into expenses (category, amount) values ('late', 100) $$,
-                     'manager editing an approved day');
+select assert_raises($$
+  insert into expenses (category, amount, business_date) values ('late', 100, current_date) $$,
+  'manager editing an approved day');
 set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
-insert into expenses (category, amount) values ('owner correction', 100);
+insert into expenses (category, amount, business_date) values ('owner correction', 100, current_date);
 select reopen_day(current_date, 'missed a diesel slip');
 set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
-insert into expenses (category, amount) values ('after reopen', 50);
+insert into expenses (category, amount, business_date) values ('after reopen', 50, current_date);
 select assert_eq((select count(*) from expenses), 3::bigint, 'manager can post again after reopen');
 rollback;
 
@@ -696,5 +845,484 @@ select assert_eq((select count(*) from v_unattached_udhaar
                  0::bigint, 'and no udhaar belongs to nobody');
 rollback;
 
+
+-- --------------------------------------------------- what a filler did -----
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+insert into shift_fillers (shift_id, staff_id)
+  values ('11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-00000000000f');
+
+select assert_eq((select shifts_this_month from v_staff_work
+                   where staff_id = '11111111-0000-0000-0000-00000000000f'),
+                 1::bigint, 'the office can see the shifts a filler stood');
+select assert_eq((select cash_this_month from v_staff_work
+                   where staff_id = '11111111-0000-0000-0000-00000000000f'),
+                 30000.00::numeric, 'and the cash that came through their hands');
+select assert_eq((select last_worked from v_staff_work
+                   where staff_id = '11111111-0000-0000-0000-00000000000f'),
+                 current_date, 'and when they last worked');
+rollback;
+
+
+-- ------------------------------------------------ how old the udhaar is ----
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+-- Shree Transport came into the book owing 50,000, took 26,760 of diesel today
+-- and has paid 20,000. Payments clear the oldest first, so 30,000 of the
+-- opening balance is still owed and today's slip is untouched.
+select assert_eq((select owed from v_customer_ageing
+                   where customer_id = 'c1111111-0000-0000-0000-000000000001'),
+                 56760.00::numeric, 'what is still owed, aged, matches the balance');
+select assert_eq((select within_month from v_customer_ageing
+                   where customer_id = 'c1111111-0000-0000-0000-000000000001'),
+                 56760.00::numeric, 'and all of it is this month, in a book this new');
+rollback;
+
+
+-- --------------------------------------- how long the fuel lasts, in days --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+-- Diesel: 8,000 opening + 5,970 decanted - 500 sold = 13,470 in the tank, and
+-- 500 L is the only day that traded, so the pump is selling 500 a day.
+select assert_eq((select litres_per_day from v_tank_cover where name = 'Tank 2 Diesel'),
+                 500.00::numeric, 'what the pump has actually been selling');
+select assert_eq((select days_left from v_tank_cover where name = 'Tank 2 Diesel'),
+                 26.9::numeric, 'and so how many days are left in the tank');
+-- A tank nothing has sold out of has no rate, and no made-up answer either.
+select assert_eq((select days_left from v_tank_cover where name = 'Tank 1 Petrol' and litres_per_day = 0),
+                 null::numeric, 'a tank with no recent sales says nothing rather than guessing');
+
+-- The tankers have no schedule, so what is kept is the rhythm.
+select assert_eq((select trips_this_month from v_fuel_supply where fuel_name = 'Diesel'),
+                 1::int, 'one tanker of diesel this month');
+select assert_eq((select last_delivery from v_fuel_supply where fuel_name = 'Diesel'),
+                 current_date, 'and the day the last one came');
+rollback;
+
+
+-- ------------------------------------- a filler starts the shift, not the clock --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+
+-- Nothing exists until somebody presses start.
+select assert_eq((select count(*) from shifts where name = 'Night'), 0::bigint,
+                 'no night shift until one is started');
+
+select assert_eq((select opened_by_staff from start_shift('Night', null,
+                                                          '11111111-0000-0000-0000-00000000000f')),
+                 '11111111-0000-0000-0000-00000000000f'::uuid,
+                 'the shift records the filler who started it');
+select assert_eq((select status::text from shifts where name = 'Night'), 'open',
+                 'and it is open');
+select assert_eq((select sort_order from shifts where name = 'Night'), 2::int,
+                 'the night sorts after the day');
+
+-- Pressing start again is not a second shift, and does not rewrite the first
+-- press: the hour a shift began is the hour it began.
+select assert_eq((select count(*) from (select start_shift('Night')) x), 1::bigint,
+                 'pressing start twice returns the shift already running');
+select assert_eq((select count(*) from shifts where name = 'Night'), 1::bigint,
+                 'and does not open a second one');
+select assert_eq((select opened_by_staff from shifts where name = 'Night'),
+                 '11111111-0000-0000-0000-00000000000f'::uuid,
+                 'nor forget who started it');
+
+-- The pump runs two shifts. A third name would be a shift the money log
+-- could never reconcile.
+select assert_raises($$ select start_shift('Evening') $$, 'a third shift name');
+-- And a filler answers for the day in front of them.
+select assert_raises($$ select start_shift('Night', current_date - 5) $$,
+                     'the counter starting an old shift');
+
+-- Who is on it is settled when it opens.
+select assert_eq((select count(*) from shift_fillers
+                   where shift_id = (select id from shifts where name = 'Night')),
+                 0::bigint, 'nobody is on it until somebody says so');
+select assert_eq((select count(*) from (select start_shift(
+                    'Night', null, '11111111-0000-0000-0000-00000000000f',
+                    array['11111111-0000-0000-0000-00000000000f'::uuid])) x),
+                 1::bigint, 'the forecourt says who is standing there');
+select assert_eq((select covering from shift_fillers
+                   where shift_id = (select id from shifts where name = 'Night')),
+                 true, 'somebody off their roster is covering');
+select assert_eq((select count(*) from (select start_shift(
+                    'Night', null, null, array[]::uuid[])) x),
+                 1::bigint, 'and can take a name off again');
+select assert_eq((select count(*) from shift_fillers
+                   where shift_id = (select id from shifts where name = 'Night')),
+                 0::bigint, 'the roster is the forecourt''s answer, not the office''s');
+
+-- Handed in too early and the forecourt is still working: pressing start
+-- again reopens it, which is the filler's own right until the office agrees
+-- the figures. The hour it first began stands.
+select assert_eq((select status::text from close_shift(
+                    (select id from shifts where name = 'Night'))),
+                 'submitted', 'the shift can be handed in');
+select assert_eq((select status::text from start_shift('Night')), 'open',
+                 'and started again if the forecourt is still working');
+select assert_eq((select closed_at from shifts where name = 'Night'), null::timestamptz,
+                 'which clears the hour it was handed in');
+select assert_eq((select opened_by_staff from shifts where name = 'Night'),
+                 '11111111-0000-0000-0000-00000000000f'::uuid,
+                 'and still names whoever started it in the first place');
+
+-- Past the office's agreement it is not the filler's to reopen.
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+update shifts set status = 'approved' where name = 'Night';
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+select assert_raises($$ select start_shift('Night') $$, 'restarting an approved shift');
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+update shifts set status = 'open' where name = 'Night';
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+
+-- Handing it in names the filler too.
+select assert_eq((select closed_by_staff from close_shift(
+                    (select id from shifts where name = 'Night'), null,
+                    '11111111-0000-0000-0000-00000000000f')),
+                 '11111111-0000-0000-0000-00000000000f'::uuid,
+                 'the shift records who handed it in');
+rollback;
+
+
+-- --------------------------------------- the cash a filler counted at the counter --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+
+-- The count is against the people who worked the shift, so they have to be on it.
+select assert_raises($$ select record_shift_cash(
+    '11111111-0000-0000-0000-0000000000c1',
+    '[{"staff_id": "11111111-0000-0000-0000-00000000000f", "cash_amount": 100}]') $$,
+  'cash against somebody who was not on the shift');
+
+insert into shift_fillers (shift_id, staff_id)
+  values ('11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-00000000000f');
+
+select assert_eq(record_shift_cash('11111111-0000-0000-0000-0000000000c1',
+    '[{"staff_id": "11111111-0000-0000-0000-00000000000f", "cash_amount": 25000}]'),
+  25000.00::numeric, 'the filler counts their own cash');
+select assert_eq((select cash_amount from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id = '11111111-0000-0000-0000-00000000000f'),
+                 25000.00::numeric, 'and it is what the shift carries');
+
+-- Cash and only cash. The card machine and the UPI account are the pump's,
+-- and sit on the shift's own row, which this never touches.
+select assert_eq((select upi_amount from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id is null),
+                 6947.00::numeric, 'the shift keeps its UPI');
+select assert_eq((select cash_amount from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id = '11111111-0000-0000-0000-00000000000f'),
+                 25000.00::numeric, 'and the filler carries cash alone');
+select assert_raises($$ select record_shift_cash(
+    '11111111-0000-0000-0000-0000000000c1',
+    '[{"staff_id": "11111111-0000-0000-0000-00000000000f", "cash_amount": -5}]') $$,
+  'a cash figure below nothing');
+
+-- A name taken off the count is taken off the shift's money; the shift's own
+-- row survives, because it is not anybody's.
+select assert_eq(record_shift_cash('11111111-0000-0000-0000-0000000000c1', '[]'),
+                 0.00::numeric, 'the count can be emptied');
+select assert_eq((select count(*) from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id is not null),
+                 0::bigint, 'and the filler''s row goes with it');
+select assert_eq((select count(*) from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id is null),
+                 1::bigint, 'the shift''s own row is never touched here');
+
+-- Past the office's agreement it is not the filler's to change.
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+update shifts set status = 'approved'
+ where id = '11111111-0000-0000-0000-0000000000c1';
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+select assert_raises($$ select record_shift_cash(
+    '11111111-0000-0000-0000-0000000000c1', '[]') $$,
+  'counting cash onto an approved shift');
+rollback;
+
+
+-- ------------------------------- cash counted note by note, not typed ------
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+
+select assert_raises($$ select record_shift_cash_count(
+    '11111111-0000-0000-0000-0000000000c1',
+    '[{"staff_id": "11111111-0000-0000-0000-00000000000f",
+       "denominations": [{"denomination": 100, "count": 1}]}]') $$,
+  'counting cash for somebody who was not on the shift');
+
+insert into shift_fillers (shift_id, staff_id)
+  values ('11111111-0000-0000-0000-0000000000c1', '11111111-0000-0000-0000-00000000000f');
+
+-- 5 x 500 + 3 x 100 + 1 x 50 = 2850, and that is the total the function
+-- returns and the total the shift carries — never typed, always added up.
+select assert_eq(record_shift_cash_count('11111111-0000-0000-0000-0000000000c1',
+    '[{"staff_id": "11111111-0000-0000-0000-00000000000f",
+       "denominations": [{"denomination": 500, "count": 5},
+                          {"denomination": 100, "count": 3},
+                          {"denomination": 50,  "count": 1}]}]'),
+  2850.00::numeric, 'the total is what the notes and coins add to');
+select assert_eq((select cash_amount from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id = '11111111-0000-0000-0000-00000000000f'),
+                 2850.00::numeric, 'and it is what the shift carries');
+select assert_eq((select count from shift_cash_denominations
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id = '11111111-0000-0000-0000-00000000000f'
+                     and denomination = 500),
+                 5::int, 'the ₹500 count is kept, not just the total');
+select assert_eq((select count(*) from shift_cash_denominations
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id = '11111111-0000-0000-0000-00000000000f'),
+                 3::bigint, 'one row per denomination actually counted, no zero rows');
+
+-- Not a real note or coin, and a count below nothing, are both refused.
+select assert_raises($$ select record_shift_cash_count(
+    '11111111-0000-0000-0000-0000000000c1',
+    '[{"staff_id": "11111111-0000-0000-0000-00000000000f",
+       "denominations": [{"denomination": 2000, "count": 1}]}]') $$,
+  'a ₹2000 note is not a real denomination here');
+select assert_raises($$ select record_shift_cash_count(
+    '11111111-0000-0000-0000-0000000000c1',
+    '[{"staff_id": "11111111-0000-0000-0000-00000000000f",
+       "denominations": [{"denomination": 100, "count": -1}]}]') $$,
+  'a note count below nothing');
+
+-- Re-counting replaces the breakdown, not adds to it.
+select assert_eq(record_shift_cash_count('11111111-0000-0000-0000-0000000000c1',
+    '[{"staff_id": "11111111-0000-0000-0000-00000000000f",
+       "denominations": [{"denomination": 200, "count": 2}]}]'),
+  400.00::numeric, 're-counting replaces the breakdown rather than adding to it');
+select assert_eq((select count(*) from shift_cash_denominations
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id = '11111111-0000-0000-0000-00000000000f'),
+                 1::bigint, 'the earlier denominations are gone, not left behind');
+
+-- A name taken off the count is taken off the shift's money AND its
+-- denominations; the shift's own row (UPI, ATM, BPCL) is never touched here.
+select assert_eq(record_shift_cash_count('11111111-0000-0000-0000-0000000000c1', '[]'),
+                 0.00::numeric, 'the count can be emptied');
+select assert_eq((select count(*) from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id is not null),
+                 0::bigint, 'and the filler''s row goes with it');
+select assert_eq((select count(*) from shift_cash_denominations
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'),
+                 0::bigint, 'and so do the denominations');
+select assert_eq((select count(*) from shift_collections
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and staff_id is null),
+                 1::bigint, 'the shift''s own row is never touched here');
+
+-- The office can read the breakdown back, named.
+select record_shift_cash_count('11111111-0000-0000-0000-0000000000c1',
+    '[{"staff_id": "11111111-0000-0000-0000-00000000000f",
+       "denominations": [{"denomination": 500, "count": 1}]}]');
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+select assert_eq((select name from v_shift_cash_denominations
+                   where shift_id = '11111111-0000-0000-0000-0000000000c1'
+                     and denomination = 500),
+                 'Ramesh', 'the owner sees whose count it was');
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+
+-- Past the office's agreement it is not the filler's to change.
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+update shifts set status = 'approved'
+ where id = '11111111-0000-0000-0000-0000000000c1';
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+select assert_raises($$ select record_shift_cash_count(
+    '11111111-0000-0000-0000-0000000000c1', '[]') $$,
+  'counting cash by note onto an approved shift');
+rollback;
+
+
+-- ------------------------------------- a filler puts right a slip they wrote --
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+
+with u as (
+  update credit_sales set quantity = 40
+   where slip_number = 'S-001' returning 1)
+select assert_eq((select count(*) from u), 1::bigint,
+                 'a slip can be corrected while the shift is the filler''s');
+
+-- Billing is not the counter's, so it cannot put a slip on one.
+select assert_raises($$
+  update credit_sales set invoice_id = gen_random_uuid() where slip_number = 'S-001' $$,
+  'the counter billing a slip');
+rollback;
+
+
+-- Nor can a slip be moved out of an open shift and onto an agreed one, which
+-- would shift udhaar the office has already signed for.
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+select start_shift('Night');
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+update shifts set status = 'approved' where name = 'Night';
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+select assert_raises($$
+  update credit_sales set shift_id = (select id from shifts where name = 'Night')
+   where slip_number = 'S-001' $$,
+  'moving a slip onto an agreed shift');
+rollback;
+
+
+-- And a slip already on a bill is somebody's account, not a note on a pad.
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+insert into invoices (id, customer_id, invoice_number, period_from, period_to)
+  values ('dddddddd-0000-0000-0000-000000000001',
+          'c1111111-0000-0000-0000-000000000001',
+          'TEST-1', current_date, current_date);
+update credit_sales set invoice_id = 'dddddddd-0000-0000-0000-000000000001'
+ where slip_number = 'S-001';
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+with u as (
+  update credit_sales set quantity = 40
+   where slip_number = 'S-001' returning 1)
+select assert_eq((select count(*) from u), 0::bigint,
+                 'a billed slip is beyond the counter');
+rollback;
+
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+update shifts set status = 'approved' where id = '11111111-0000-0000-0000-0000000000c1';
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000004';
+with u as (
+  update credit_sales set quantity = 40
+   where slip_number = 'S-001' returning 1)
+select assert_eq((select count(*) from u), 0::bigint,
+                 'but not once the office has agreed the shift');
+rollback;
+
 \echo ''
 \echo '================  ALL ASSERTIONS PASSED  ================'
+
+-- --------------------------------------------------- the roster rotates ----
+-- rotation_effective_role() on its own: given a role for one week, every
+-- other week is a flip for each week's distance from it. 2024-01-01 is a
+-- Monday, so the week it opens runs Mon 1 Jan to Sun 7 Jan.
+select assert_eq(rotation_effective_role('Day', '2024-01-01', '2024-01-03'),
+                 'Day', 'same week, midweek: unchanged');
+select assert_eq(rotation_effective_role('Day', '2024-01-01', '2024-01-07'),
+                 'Day', 'same week, its own Sunday: still unchanged');
+select assert_eq(rotation_effective_role('Day', '2024-01-01', '2024-01-08'),
+                 'Night', 'one week on, from Monday: flipped');
+select assert_eq(rotation_effective_role('Day', '2024-01-01', '2024-01-15'),
+                 'Day', 'two weeks on: back to the start');
+select assert_eq(rotation_effective_role('Day', '2024-01-01', '2023-12-25'),
+                 'Night', 'a week earlier: flipped there too');
+select assert_eq(rotation_effective_role(null, '2024-01-01', '2024-01-03'),
+                 null, 'no role recorded: no answer, not a guess');
+
+-- staff_is_rostered() folds the Sunday handover in: the crew finishing the
+-- week on days also works that Sunday's night shift, and the crew finishing
+-- the week on nights has the day off rather than working it.
+select assert_eq(staff_is_rostered(false, 'Day', null, null, 'Day', '2024-01-03'),
+                 true, 'a fixed Day filler, on a Day shift');
+select assert_eq(staff_is_rostered(false, 'Day', null, null, 'Night', '2024-01-03'),
+                 false, 'a fixed Day filler, on a Night shift');
+select assert_eq(staff_is_rostered(false, null, null, null, 'Day', '2024-01-03'),
+                 false, 'no fixed shift at all is not a roster match');
+
+-- Group A: Day as of the week of 2024-01-01. Group B: Night, same week.
+select assert_eq(staff_is_rostered(true, null, 'Day', '2024-01-01', 'Day', '2024-01-07'),
+                 true, 'Sunday, the day group: still on the day shift');
+select assert_eq(staff_is_rostered(true, null, 'Day', '2024-01-01', 'Night', '2024-01-07'),
+                 true, 'Sunday, the day group: on the night shift too — the double');
+select assert_eq(staff_is_rostered(true, null, 'Night', '2024-01-01', 'Day', '2024-01-07'),
+                 false, 'Sunday, the night group: not on the day shift');
+select assert_eq(staff_is_rostered(true, null, 'Night', '2024-01-01', 'Night', '2024-01-07'),
+                 false, 'Sunday, the night group: has the night off too — the day group covered it');
+-- The Monday after: roles have swapped, and it is a plain lookup again, no
+-- Sunday exception in play.
+select assert_eq(staff_is_rostered(true, null, 'Day', '2024-01-01', 'Night', '2024-01-08'),
+                 true, 'Monday, week 2: the erstwhile day group is now on nights');
+select assert_eq(staff_is_rostered(true, null, 'Night', '2024-01-01', 'Day', '2024-01-08'),
+                 true, 'Monday, week 2: the erstwhile night group is now on days');
+
+-- And through the trigger and start_shift(), not just the bare function.
+begin;
+set local role authenticated;
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+insert into staff (id, station_id, name, monthly_salary, rotates, rotation_role, rotation_set_on)
+  values
+    ('11111111-0000-0000-0000-0000000000e1', '11111111-1111-1111-1111-111111111111',
+     'Rotates onto Day', 10000, true, 'Day', '2024-01-01'),
+    ('11111111-0000-0000-0000-0000000000e2', '11111111-1111-1111-1111-111111111111',
+     'Rotates onto Night', 10000, true, 'Night', '2024-01-01');
+
+-- A weekday: the roster is seeded on opening, split cleanly between the two.
+select assert_eq((select status::text from start_shift('Day', '2024-01-03')), 'open', 'day shift opens');
+select assert_eq((select status::text from start_shift('Night', '2024-01-03')), 'open', 'night shift opens');
+select assert_eq((select count(*) from shift_fillers sf
+                   join shifts s on s.id = sf.shift_id
+                  where s.business_date = '2024-01-03' and s.name = 'Day'
+                    and sf.staff_id = '11111111-0000-0000-0000-0000000000e1'),
+                 1::bigint, 'the day-group filler is seeded onto the weekday day shift');
+select assert_eq((select count(*) from shift_fillers sf
+                   join shifts s on s.id = sf.shift_id
+                  where s.business_date = '2024-01-03' and s.name = 'Night'
+                    and sf.staff_id = '11111111-0000-0000-0000-0000000000e2'),
+                 1::bigint, 'the night-group filler is seeded onto the weekday night shift');
+select assert_eq((select count(*) from shift_fillers sf
+                   join shifts s on s.id = sf.shift_id
+                  where s.business_date = '2024-01-03' and s.name = 'Night'
+                    and sf.staff_id = '11111111-0000-0000-0000-0000000000e1'),
+                 0::bigint, 'and not the other way round on a plain weekday');
+
+-- The Sunday: the day group is seeded onto both, the night group onto neither.
+select assert_eq((select status::text from start_shift('Day', '2024-01-07')), 'open', 'Sunday day shift opens');
+select assert_eq((select status::text from start_shift('Night', '2024-01-07')), 'open', 'Sunday night shift opens');
+select assert_eq((select count(*) from shift_fillers sf
+                   join shifts s on s.id = sf.shift_id
+                  where s.business_date = '2024-01-07' and s.name = 'Day'
+                    and sf.staff_id = '11111111-0000-0000-0000-0000000000e1'),
+                 1::bigint, 'Sunday: the day group works the day shift as usual');
+select assert_eq((select count(*) from shift_fillers sf
+                   join shifts s on s.id = sf.shift_id
+                  where s.business_date = '2024-01-07' and s.name = 'Night'
+                    and sf.staff_id = '11111111-0000-0000-0000-0000000000e1'),
+                 1::bigint, 'Sunday: the day group works the night shift too — seeded by the trigger, not typed in');
+select assert_eq((select count(*) from shift_fillers sf
+                   join shifts s on s.id = sf.shift_id
+                  where s.business_date = '2024-01-07'
+                    and sf.staff_id = '11111111-0000-0000-0000-0000000000e2'),
+                 0::bigint, 'Sunday: the night group is on neither shift — the day group covered both');
+
+-- start_shift()'s own covering flag agrees with the trigger: naming the
+-- night-group filler onto that Sunday's night shift (where the roster now
+-- says the day group, not them) marks it as covering.
+select assert_eq((select covering from shift_fillers sf
+                    where sf.shift_id = (select id from shifts
+                                          where business_date = '2024-01-07' and name = 'Night')
+                      and sf.staff_id = '11111111-0000-0000-0000-0000000000e1'),
+                 false, 'the day group on Sunday night is not covering — it is their own roster');
+
+select (select count(*) from (select start_shift(
+    'Night', '2024-01-07', null,
+    array['11111111-0000-0000-0000-0000000000e1'::uuid, '11111111-0000-0000-0000-0000000000e2'::uuid])) x);
+select assert_eq((select covering from shift_fillers sf
+                    where sf.shift_id = (select id from shifts
+                                          where business_date = '2024-01-07' and name = 'Night')
+                      and sf.staff_id = '11111111-0000-0000-0000-0000000000e2'),
+                 true, 'the night group standing on Sunday night anyway is covering, correctly');
+rollback;

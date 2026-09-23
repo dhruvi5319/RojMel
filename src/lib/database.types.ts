@@ -42,8 +42,13 @@ export interface Profile {
 }
 
 export interface Staff {
-  /** which shift they normally work — 'Day', 'Night', or null */
+  /** which shift they normally work — 'Day', 'Night', or null. Null when rotates. */
   default_shift: string | null
+  /** true when they swap Day/Night weekly instead of having one fixed shift */
+  rotates: boolean
+  /** 'Day' or 'Night', as of the week rotation_set_on falls in */
+  rotation_role: string | null
+  rotation_set_on: string | null
   id: string
   station_id: string
   name: string
@@ -108,6 +113,10 @@ export interface Shift {
   status: ShiftStatus
   opened_at: string
   closed_at: string | null
+  /** the filler who pressed start on the counter; null when the office opened it */
+  opened_by_staff: string | null
+  /** the filler who handed it in */
+  closed_by_staff: string | null
   created_by: string | null
   approved_by: string | null
   approved_at: string | null
@@ -144,6 +153,15 @@ export interface ShiftCollection {
   bpcl_amount: number
   notes: string | null
   created_at: string
+}
+
+/** row: shift_cash_denominations — one filler's cash, by note and coin */
+export interface ShiftCashDenomination {
+  shift_id: string
+  station_id: string
+  staff_id: string
+  denomination: number
+  count: number
 }
 
 export interface Customer {
@@ -309,6 +327,21 @@ export interface Expense {
   created_at: string
 }
 
+/** view: v_staff_work — what the counter says each filler actually did */
+export interface StaffWork {
+  staff_id: string
+  station_id: string
+  name: string
+  name_gu: string | null
+  is_active: boolean
+  shifts_this_month: number
+  cash_this_month: number
+  shifts_all_time: number
+  last_worked: string | null
+  slips_this_month: number
+  udhaar_this_month: number | null
+}
+
 export interface StaffPayment {
   id: string
   station_id: string
@@ -354,6 +387,19 @@ export interface DayClosing {
 }
 
 /** view: v_customer_balances */
+/** view: v_customer_ageing — what is still owed, and how long it has been */
+export interface CustomerAgeing {
+  customer_id: string
+  station_id: string
+  owed: number
+  within_month: number | null
+  one_to_two: number | null
+  two_to_three: number | null
+  over_three: number | null
+  /** the age of the oldest rupee still owed */
+  oldest_days: number | null
+}
+
 export interface CustomerBalance {
   customer_id: string
   station_id: string
@@ -384,6 +430,30 @@ export interface TankStock {
   last_dip_litres: number | null
   last_dip_date: string | null
   last_dip_variance: number | null
+}
+
+/** view: v_tank_cover — how long the fuel lasts, and when the last tanker came */
+export interface TankCover extends TankStock {
+  /** what the pump has actually been selling, over the last fortnight of trading */
+  litres_per_day: number
+  days_counted: number
+  /** null where nothing has sold lately: no rate, and no guess either */
+  days_left: number | null
+  runs_out_on: string | null
+  last_delivery: string | null
+  days_since_delivery: number | null
+}
+
+/** view: v_fuel_supply — the rhythm the tankers arrive in, there being no schedule */
+export interface FuelSupply {
+  station_id: string
+  fuel_type_id: string
+  fuel_name: string
+  trips_this_month: number
+  litres_this_month: number | null
+  last_delivery: string | null
+  usual_gap_days: number | null
+  longest_gap_days: number | null
 }
 
 /** rpc: day_summary(p_date) */
@@ -422,14 +492,40 @@ export interface DaySummary {
 export interface MarginReport {
   from: string
   to: string
+  /** petrol and diesel; kilograms are counted apart, because they do not add */
   litres_sold: number
+  kg_sold: number
   sales_value: number
+  /** what the fuel SOLD cost, carried from the tankers it came out of */
+  cost_of_sales: number
+  gross_profit: number
+  avg_sale_rate: number | null
+  /** over the litres whose cost is known — the only one the margin subtracts from */
+  avg_sale_rate_priced: number | null
+  avg_cost_rate: number | null
+  gross_margin_per_litre: number | null
+  /** what arrived in this window and what was paid for it — cash out, not cost of sales */
   litres_bought: number
   purchase_cost: number
-  avg_sale_rate: number | null
-  avg_purchase_rate: number | null
-  gross_margin_per_litre: number | null
   operating_expenses: number
+  net_after_costs: number
+  /** fuels sold in this window with no priced tanker behind them */
+  fuels_without_cost: number
+}
+
+/** rpc: margin_by_fuel — petrol and diesel are different businesses */
+export interface FuelMargin {
+  fuel_type_id: string
+  fuel_name: string
+  unit: 'L' | 'kg'
+  quantity_sold: number
+  sales_value: number
+  cost_of_sales: number
+  avg_sale_rate: number | null
+  avg_cost_rate: number | null
+  margin_per_unit: number | null
+  /** false when no tanker of this fuel has ever been priced */
+  cost_known: boolean
 }
 
 /** view: v_nozzle_state — everything the shift-entry form needs per nozzle */
@@ -636,6 +732,8 @@ export interface ShiftMeter {
   opening_reading: number | null
   closing_reading: number | null
   quantity: number | null
+  /** true once somebody has actually closed this shift's reading, not just inherited it */
+  confirmed: boolean
 }
 
 /** view: v_shift_fillers — who worked this shift, and who was covering */

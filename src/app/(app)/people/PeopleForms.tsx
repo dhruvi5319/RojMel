@@ -82,7 +82,13 @@ export function AccountActive({
 }) {
   const t = useT()
   return (
-    <ActionForm action={setAccountActive} className="inline" onDone={null} stayOpen>
+    <ActionForm
+      action={setAccountActive}
+      className="inline"
+      onDone={null}
+      stayOpen
+      alwaysReady
+    >
       <input type="hidden" name="user_id" value={userId} />
       <input type="hidden" name="active" value={active ? 'false' : 'true'} />
       <SubmitButton size="sm" variant={active ? 'danger' : 'secondary'}>

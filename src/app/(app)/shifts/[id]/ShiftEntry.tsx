@@ -7,7 +7,8 @@ import { Check, Save, TriangleAlert } from 'lucide-react'
 import { useT } from '@/lib/i18n/client'
 import { litres as fmtLitres, money } from '@/lib/format'
 import type {
-  CngReading, CngState, NozzleReading, NozzleState, Shift, ShiftCollection, Staff,
+  CngReading, CngState, NozzleReading, NozzleState, Shift, ShiftCollection,
+  ShiftFiller, Staff,
 } from '@/lib/database.types'
 import {
   Alert, Badge, Button, Card, CardHeader, Field, NumberInput, Select, Stat,
@@ -55,6 +56,7 @@ export function ShiftEntry({
   nozzles,
   readings,
   staff,
+  fillers,
   collections,
   creditTotal,
   locked,
@@ -65,6 +67,8 @@ export function ShiftEntry({
   nozzles: NozzleState[]
   readings: NozzleReading[]
   staff: Staff[]
+  /** who the forecourt said worked this shift — the cash boxes are theirs */
+  fillers: ShiftFiller[]
   collections: ShiftCollection[]
   creditTotal: number
   locked: boolean
@@ -110,12 +114,33 @@ export function ShiftEntry({
     }),
   )
 
+  /*
+   * The cash boxes belong to the people who worked this shift, not to every
+   * name on the payroll. The counter settles who that is when the shift
+   * starts, and record_shift_cash() refuses a name that was never on it — so
+   * an office form offering all forty was offering a figure the forecourt
+   * could not have written. Anyone the office already recorded cash against
+   * stays on the list, or saving would quietly drop their money.
+   */
+  const onThisShift = useMemo(() => {
+    const seen = new Set(fillers.map((f) => f.staff_id))
+    const rows = fillers.map((f) => ({ id: f.staff_id, name: f.name }))
+    for (const c of collections) {
+      if (c.staff_id && !seen.has(c.staff_id)) {
+        seen.add(c.staff_id)
+        const who = staff.find((s) => s.id === c.staff_id)
+        rows.push({ id: c.staff_id, name: who?.name ?? '—' })
+      }
+    }
+    return rows
+  }, [fillers, collections, staff])
+
   const [handover, setHandover] = useState<Handover[]>(() =>
-    staff.map((s) => {
-      const existing = collections.find((c) => c.staff_id === s.id)
+    onThisShift.map((p) => {
+      const existing = collections.find((c) => c.staff_id === p.id)
       return {
-        staff_id: s.id,
-        name: s.name,
+        staff_id: p.id,
+        name: p.name,
         cash: existing ? String(existing.cash_amount) : '',
       }
     }),
@@ -399,8 +424,8 @@ export function ShiftEntry({
             </Link>
           }
         />
-        {staff.length === 0 ? (
-          <div className="p-4 text-neutral-600">{t('common.none')}</div>
+        {handover.length === 0 ? (
+          <div className="p-4 text-neutral-700">{t('shift.nobodyOnThisShift')}</div>
         ) : (
           <div className="flex flex-col divide-y divide-divider">
             {handover.map((h, i) => (

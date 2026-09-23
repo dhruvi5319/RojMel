@@ -7,7 +7,7 @@ import { cancelInvoice } from '../actions'
 export function CancelInvoice({ id }: { id: string }) {
   const t = useT()
   return (
-    <ActionForm action={cancelInvoice} className="flex flex-col gap-2">
+    <ActionForm action={cancelInvoice} className="flex flex-col gap-2" alwaysReady>
       <input type="hidden" name="id" value={id} />
       <div>
         <SubmitButton variant="secondary" size="sm">

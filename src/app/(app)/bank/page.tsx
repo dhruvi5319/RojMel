@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import {formatDate, money} from '@/lib/format'
 import type { BankDeposit, CashPosition, Profile } from '@/lib/database.types'
-import { Card, Empty, PageHeader, Stat, TableWrap, Td, Th } from '@/components/ui'
+import { Alert, Card, Empty, PageHeader, Stat, TableWrap, Td, Th } from '@/components/ui'
 import { DeleteButton } from '@/components/DeleteButton'
 import { EditableRow } from '@/components/EditableRow'
 import { Collapsible } from '@/components/Collapsible'
@@ -41,6 +41,22 @@ export default async function BankPage() {
     .filter((r) => r.deposit_date.slice(0, 7) === today.slice(0, 7))
     .reduce((s, r) => s + Number(r.amount), 0)
 
+  /*
+   * The box is a position, and a position can be wrong. It printed a negative
+   * figure without comment — and less than nothing cannot be in a cash box, so
+   * that is the books disagreeing with the room, not a small balance. A large
+   * one is a different problem: money nobody has taken to the bank.
+   */
+  const inHand = Number(cash?.in_hand ?? 0)
+  const lastDeposit = rows[0]?.deposit_date ?? null
+  const daysSince = lastDeposit
+    ? Math.round(
+        (Date.parse(`${today}T12:00:00Z`) - Date.parse(`${lastDeposit}T12:00:00Z`)) / 86400000,
+      )
+    : null
+  const impossible = inHand < 0
+  const tooMuch = inHand >= 150000
+
   return (
     <>
       <PageHeader title={t('bank.title')} />
@@ -48,13 +64,30 @@ export default async function BankPage() {
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Stat
           label={t('bank.undeposited')}
-          value={money(cash?.in_hand ?? 0)}
+          value={money(inHand)}
           hint={t('dash.cashInHand')}
-          tone="accent"
+          tone={impossible ? 'danger' : 'accent'}
         />
-        <Stat label="This month" value={money(thisMonth)} />
+        <Stat label={t('bank.thisMonth')} value={money(thisMonth)} />
         <Stat label={t('common.total')} value={money(cash?.deposited ?? 0)} tone="ok" />
       </div>
+
+      {impossible ? (
+        <div className="mb-5">
+          <Alert tone="danger">
+            <strong>{t('bank.impossible')}</strong> {t('bank.impossibleWhy')}
+          </Alert>
+        </div>
+      ) : tooMuch ? (
+        <div className="mb-5">
+          <Alert tone="accent">
+            <strong>{money(inHand)}</strong> {t('bank.tooMuchToKeep')}
+            {daysSince != null && daysSince > 0
+              ? ` ${t('bank.lastDeposited')} ${daysSince} ${t('stock.daysAgo')}.`
+              : ''}
+          </Alert>
+        </div>
+      ) : null}
 
       <div className="mb-4">
         <Collapsible title={t('bank.new')}>

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useT } from '@/lib/i18n/client'
 import { Alert, Button, Card, Field, Input } from '@/components/ui'
+import { PasswordInput } from '@/components/PasswordInput'
 
 export function LoginForm() {
   const t = useT()
@@ -58,8 +59,7 @@ export function LoginForm() {
         </Field>
 
         <Field label={t('auth.password')} required>
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="current-password"
             required
             value={password}
@@ -68,6 +68,15 @@ export function LoginForm() {
         </Field>
 
         {error ? <Alert tone="danger">{error}</Alert> : null}
+
+        {/* No reset link: there is no sign-up either, and a link that could
+            hand anyone into an account defeats the same purpose a sign-up
+            form would. A forgotten password is the owner's to give back,
+            on Accounts — the same door that gave it out the first time. */}
+        <p className="-mt-1 text-[13px] leading-snug text-neutral-700">
+          <span className="font-medium text-neutral-800">{t('auth.forgotPassword')}</span>{' '}
+          {t('auth.forgotPasswordHint')}
+        </p>
 
         <Button type="submit" size="lg" className="w-full" disabled={busy}>
           {busy ? t('auth.signingIn') : t('auth.signIn')}

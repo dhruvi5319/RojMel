@@ -20,9 +20,15 @@ const tone = { open: 'accent', submitted: 'neutral', approved: 'ok' } as const
 export function ShiftStatusBar({
   shift,
   approvedByName,
+  openedByName,
+  closedByName,
 }: {
   shift: Shift
   approvedByName?: string | null
+  /** the filler who pressed start on the forecourt, if one did */
+  openedByName?: string | null
+  /** and the one who handed it in */
+  closedByName?: string | null
 }) {
   const t = useT()
   const router = useRouter()
@@ -42,7 +48,7 @@ export function ShiftStatusBar({
     <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 px-5 py-4">
       <div>
         <Badge tone={tone[shift.status]}>{t(`shift.${shift.status}`)}</Badge>
-        <span className="ml-3 text-[12.5px] text-neutral-600">
+        <span className="ml-3 text-[12.5px] text-neutral-700">
           {shift.status === 'approved' && shift.approved_at
             ? `${t('shift.agreedAt')} ${formatTime(shift.approved_at)}${
                 approvedByName ? ` · ${approvedByName}` : ''
@@ -51,6 +57,16 @@ export function ShiftStatusBar({
               ? t('shift.handedIn')
               : t('shift.stillRunning')}
         </span>
+        {/* The hour the shift really began and who began it — written by the
+            counter, and until now shown on no office screen. */}
+        <div className="tabular mt-1.5 text-[12.5px] text-neutral-700">
+          {openedByName
+            ? `${openedByName} ${t('shift.startedIt')} ${formatTime(shift.opened_at)}`
+            : `${t('shift.openedByOffice')} ${formatTime(shift.opened_at)}`}
+          {shift.closed_at
+            ? ` · ${closedByName ? `${closedByName} ` : ''}${t('shift.handedItIn')} ${formatTime(shift.closed_at)}`
+            : ''}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

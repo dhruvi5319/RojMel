@@ -52,9 +52,15 @@ export function PillBar({ role }: { role: UserRole }) {
 
   return (
     <div className="no-print flex flex-wrap gap-1.5 px-4 pt-4 sm:px-6">
+      {/* The longest match wins, or a pill for /settings would light on
+          /settings/equipment as well and neither would mean anything. */}
       {items.map((item) => {
-        const on =
-          item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+        const matches = (href: string) =>
+          href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`)
+        const best = items
+          .filter((i) => matches(i.href))
+          .sort((a, b) => b.href.length - a.href.length)[0]
+        const on = best?.href === item.href
         // Carry the chosen day across the pages it governs.
         const href = item.dated && date ? `${item.href}?date=${date}` : item.href
         return (

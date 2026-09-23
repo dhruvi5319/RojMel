@@ -56,6 +56,9 @@ export async function addFuelType(
   const name = String(data.get('name') ?? '').trim()
   if (!name) return { error: 'Name the fuel.' }
 
+  const unit = String(data.get('unit') ?? '').trim()
+  if (unit !== 'L' && unit !== 'kg') return { error: 'Choose what it is measured in.' }
+
   const rate = Number(data.get('sale_rate') ?? 0)
 
   const { data: fuel, error } = await supabase
@@ -63,6 +66,7 @@ export async function addFuelType(
     .insert({
       name,
       name_gu: text(data, 'name_gu'),
+      unit,
       sort_order: Number(data.get('sort_order') ?? 0),
     })
     .select('id')

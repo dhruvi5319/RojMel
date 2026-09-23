@@ -2,7 +2,7 @@ import { requireOwner , pumpToday } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import {formatDate, litres, money, monthEnd, monthStart, quantity} from '@/lib/format'
-import type { MarginReport, SalesByDay, SalesByFuel } from '@/lib/database.types'
+import type { FuelMargin, MarginReport, SalesByDay } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, PageHeader, Stat, TableWrap, Td, Th,
 } from '@/components/ui'
@@ -30,17 +30,14 @@ export default async function ReportsPage({
   const [marginRes, dailyRes, fuelRes] = await Promise.all([
     supabase.rpc('margin_report', { p_from: from, p_to: to }),
     supabase.rpc('sales_by_day', { p_from: from, p_to: to }),
-    supabase.rpc('sales_by_fuel', { p_from: from, p_to: to }),
+    // Per fuel, valued at what that fuel cost — petrol and diesel are
+    // different businesses and one blended figure hides the thin one.
+    supabase.rpc('margin_by_fuel', { p_from: from, p_to: to }),
   ])
 
   const margin = (marginRes.data ?? null) as MarginReport | null
   const daily = (dailyRes.data ?? []) as SalesByDay[]
-  const byFuel = (fuelRes.data ?? []) as SalesByFuel[]
-
-  const grossProfit =
-    margin && margin.gross_margin_per_litre != null
-      ? margin.gross_margin_per_litre * margin.litres_sold
-      : null
+  const byFuel = (fuelRes.data ?? []) as FuelMargin[]
 
   const traded = daily.filter((d) => d.meter_sales > 0)
 
@@ -69,10 +66,14 @@ export default async function ReportsPage({
           hint={litres(margin?.litres_sold ?? 0)}
           tone="accent"
         />
+        {/* What the fuel that was SOLD cost. Not the tankers that happened to
+            arrive in the same window — they come when the tanks need them, so
+            the two are never the same and subtracting one from the other made
+            a month with an extra load read as a disaster. */}
         <Stat
-          label={t('rep.purchaseCost')}
-          value={money(margin?.purchase_cost ?? 0)}
-          hint={litres(margin?.litres_bought ?? 0)}
+          label={t('rep.costOfSales')}
+          value={money(margin?.cost_of_sales ?? 0)}
+          hint={t('rep.costOfSalesHint')}
         />
         <Stat
           label={t('rep.marginPerLitre')}
@@ -82,11 +83,18 @@ export default async function ReportsPage({
               : '—'
           }
           hint={
-            margin?.avg_sale_rate != null && margin?.avg_purchase_rate != null
-              ? `₹${margin.avg_sale_rate.toFixed(2)} − ₹${margin.avg_purchase_rate.toFixed(2)}`
+            // The working under the answer, and it has to come to the answer:
+            // the selling rate over the priced litres, to three places like
+            // the margin itself. Averaging every litre sold and rounding to
+            // two made this subtraction miss by paisa — or by rupees, once a
+            // fuel with no tanker behind it was in the window.
+            margin?.avg_sale_rate_priced != null && margin?.avg_cost_rate != null
+              ? `₹${margin.avg_sale_rate_priced.toFixed(3)} − ₹${margin.avg_cost_rate.toFixed(3)}`
               : undefined
           }
-          tone="ok"
+          // Olive is the pump's colour for settled and right. A margin that
+          // has gone negative is neither.
+          tone={(margin?.gross_margin_per_litre ?? 0) < 0 ? 'danger' : 'ok'}
         />
         <Stat
           label={t('rep.opex')}
@@ -96,27 +104,39 @@ export default async function ReportsPage({
         />
       </div>
 
-      {margin?.gross_margin_per_litre == null ? (
-        <div className="mt-4">
+      <div className="mt-4 flex flex-col gap-3">
+        {/* A fuel with no tanker priced behind it cannot be costed, and a zero
+            there would report the whole sale as profit. Name it instead. */}
+        {(margin?.fuels_without_cost ?? 0) > 0 ? (
           <Alert tone="accent">
-            Margin needs both sales and a purchase rate in this period. Record a
-            tanker delivery with its rate to see it.
+            {byFuel
+              .filter((f) => !f.cost_known && f.quantity_sold > 0)
+              .map((f) => f.fuel_name)
+              .join(', ')}{' '}
+            — {t('rep.noCostYet')}
           </Alert>
-        </div>
-      ) : (
-        <div className="mt-4">
-          <Alert tone="accent">
-            {t('rep.grossProfit')} on litres sold:{' '}
-            <strong>{money(grossProfit ?? 0)}</strong> — before{' '}
-            {money(margin.operating_expenses)} of running costs.
-          </Alert>
-        </div>
-      )}
+        ) : null}
+        <Alert tone={(margin?.net_after_costs ?? 0) >= 0 ? 'ok' : 'danger'}>
+          {t('rep.grossProfit')}: <strong>{money(margin?.gross_profit ?? 0)}</strong> —{' '}
+          {t('rep.lessRunning')} {money(margin?.operating_expenses ?? 0)} ={' '}
+          <strong>{money(margin?.net_after_costs ?? 0)}</strong>
+        </Alert>
+
+        {/* Tanker spend is cash leaving the pump, and belongs nowhere near the
+            margin. With sixteen or seventeen loads a month on no schedule, a
+            window catching two extra is not a worse month. */}
+        <Alert tone="accent">
+          <span className="tabular">
+            {t('rep.tankersInWindow')}: <strong>{money(margin?.purchase_cost ?? 0)}</strong>{' '}
+            ({litres(margin?.litres_bought ?? 0)}). {t('rep.tankersAreCash')}
+          </span>
+        </Alert>
+      </div>
 
       {/* ---------------------------------------------------- by product -- */}
       <div className="mt-6">
         <Card>
-          <CardHeader title={t('set.fuels')} />
+          <CardHeader title={t('set.fuels')} subtitle={t('rep.perFuelHint')} />
           {byFuel.length === 0 ? (
             <Empty>{t('common.none')}</Empty>
           ) : (
@@ -126,19 +146,27 @@ export default async function ReportsPage({
                   <Th>{t('common.fuel')}</Th>
                   <Th className="text-right">{t('common.quantity')}</Th>
                   <Th className="text-right">{t('rep.salesValue')}</Th>
-                  <Th className="text-right">{t('common.rate')}</Th>
+                  <Th className="text-right">{t('rep.costOfSales')}</Th>
+                  <Th className="text-right">{t('rep.marginPerLitre')}</Th>
                 </tr>
               </thead>
               <tbody>
                 {byFuel.map((f) => (
                   <tr key={f.fuel_type_id}>
                     <Td className="font-medium">{f.fuel_name}</Td>
-                    <Td className="tabular text-right">{quantity(f.quantity, f.unit)}</Td>
+                    <Td className="tabular text-right">
+                      {quantity(f.quantity_sold, f.unit)}
+                    </Td>
                     <Td className="tabular text-right font-semibold">
                       {money(f.sales_value)}
                     </Td>
-                    <Td className="tabular text-right text-neutral-600">
-                      {f.avg_rate != null ? `₹${f.avg_rate.toFixed(2)}` : '—'}
+                    <Td className="tabular text-right text-neutral-700">
+                      {f.cost_known ? money(f.cost_of_sales) : t('rep.notPriced')}
+                    </Td>
+                    <Td className="tabular text-right font-semibold">
+                      {f.margin_per_unit != null
+                        ? `₹${f.margin_per_unit.toFixed(3)}`
+                        : '—'}
                     </Td>
                   </tr>
                 ))}

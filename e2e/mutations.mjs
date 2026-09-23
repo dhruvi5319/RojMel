@@ -34,7 +34,15 @@ async function check(label, fn) {
 const body = () => page.locator('body').innerText()
 
 /** Assert text is on the page now, and still there after a reload. */
-async function reflects(needle) {
+async function reflects(needle, waitMs = 10000) {
+  // Wait for it rather than race a fixed sleep. The claim being tested is that
+  // no reload is NEEDED, not that the change beats a stopwatch — and a dev
+  // server compiling a route for the first time loses that race at random,
+  // which failed a different add-form on every run.
+  const deadline = Date.now() + waitMs
+  while (Date.now() < deadline && !(await body()).includes(needle)) {
+    await page.waitForTimeout(250)
+  }
   const before = await body()
   if (!before.includes(needle)) {
     throw new Error(`"${needle}" did not appear without a reload`)
@@ -104,10 +112,49 @@ async function openPanel(title) {
   await page.waitForTimeout(250)
 }
 
+/**
+ * Open the pencil that guards a panel of figures.
+ *
+ * Nothing on these screens is editable until somebody says they mean to change
+ * it, so a test that types into a field has to ask for the field first.
+ */
+async function openEditor(label) {
+  const pencil = page.getByRole('button', { name: label, exact: true })
+  if ((await pencil.count()) > 0) {
+    await pencil.first().click()
+    await page.waitForTimeout(500)
+  }
+}
+
 async function submitIn(scope, waitMs = 2500) {
   await scope.locator('button[type=submit]').first().click()
   await page.waitForTimeout(waitMs)
 }
+
+console.log('\n=== LOGIN ===')
+await check('login: a password can be checked before it is sent', async () => {
+  await ctx.clearCookies()
+  await page.goto(`${BASE}/login`)
+  const pwField = page.locator('input[autocomplete="current-password"]')
+  await pwField.fill('whatever-was-typed')
+  if ((await pwField.getAttribute('type')) !== 'password') {
+    throw new Error('the password starts visible')
+  }
+  await page.getByRole('button', { name: 'Show password' }).click()
+  if ((await pwField.getAttribute('type')) !== 'text') {
+    throw new Error('the eye did not reveal the password')
+  }
+  if ((await pwField.inputValue()) !== 'whatever-was-typed') {
+    throw new Error('revealing the password lost what was typed')
+  }
+  await page.getByRole('button', { name: 'Hide password' }).click()
+  if ((await pwField.getAttribute('type')) !== 'password') {
+    throw new Error('the eye did not hide the password again')
+  }
+  if (!(await body()).includes('Forgotten your password?')) {
+    throw new Error('no word about a forgotten password')
+  }
+})
 
 /**
  * A previous run may have left today approved, which correctly locks every
@@ -138,7 +185,7 @@ await check('settings: manager cannot edit pump details', async () => {
 })
 
 await checkAsOwner('settings: add a fuel, then remove it', async () => {
-  await page.goto(`${BASE}/settings`, { waitUntil: 'load' })
+  await page.goto(`${BASE}/settings/equipment`, { waitUntil: 'load' })
   await openPanel('Fuels')
   const form = page.locator('form')
     .filter({ has: page.locator('input[name=name_gu]') })
@@ -153,6 +200,36 @@ await checkAsOwner('settings: add a fuel, then remove it', async () => {
   await row.locator('button[aria-label^="Delete"]').click()
   await page.waitForTimeout(2500)
   await gone(`Power ${STAMP}`)
+})
+
+await checkAsOwner('settings: a fuel measured in kilograms actually reaches /cng', async () => {
+  // The unit is chosen once, here, and never again — the edit form only
+  // shows it back fixed. Without this box every fuel silently became
+  // litres, CNG included, and /cng's own "add a fuel measured in kilograms"
+  // instruction had no way to be followed.
+  await page.goto(`${BASE}/settings/equipment`, { waitUntil: 'load' })
+  await openPanel('Fuels')
+  const form = page.locator('form')
+    .filter({ has: page.locator('select[name=unit]') })
+    .filter({ hasNot: page.locator('input[name=id]') })
+  await form.locator('input[name=name]').fill(`Biogas ${STAMP}`)
+  await form.locator('select[name=unit]').selectOption('kg')
+  await submitIn(form)
+  await reflects(`Biogas ${STAMP}`)
+  if (!(await body()).includes('/kg')) throw new Error('the new fuel did not save as kilograms')
+
+  await page.goto(`${BASE}/cng`, { waitUntil: 'load' })
+  await page.waitForTimeout(600)
+  if ((await body()).includes('No CNG fuel set up yet')) {
+    throw new Error('a kilogram fuel exists, but /cng still says none does')
+  }
+
+  // tidy up, so repeated runs do not fill the pump with invented fuels
+  await page.goto(`${BASE}/settings/equipment`, { waitUntil: 'load' })
+  const row = page.locator('tr', { hasText: `Biogas ${STAMP}` }).first()
+  await row.locator('button[aria-label^="Delete"]').click()
+  await page.waitForTimeout(2500)
+  await gone(`Biogas ${STAMP}`)
 })
 
 // Pump prices move daily, so the rate is a morning job on Today, not a
@@ -170,14 +247,14 @@ await check('rates: set today\'s rate on Today', async () => {
   if (!(await body()).includes('Every rate change')) {
     throw new Error('no rate history on the Rates page')
   }
-  await page.goto(`${BASE}/settings`, { waitUntil: 'load' })
+  await page.goto(`${BASE}/settings/equipment`, { waitUntil: 'load' })
   if ((await body()).includes('Change rate')) {
     throw new Error('Settings still offers a second way to set the rate')
   }
 })
 
 await checkAsOwner('settings: add a tank', async () => {
-  await page.goto(`${BASE}/settings`)
+  await page.goto(`${BASE}/settings/equipment`)
   await openPanel('Tanks')
   const form = page.locator('form')
     .filter({ has: page.locator('input[name=capacity_litres]') })
@@ -194,7 +271,7 @@ await checkAsOwner('settings: add a tank', async () => {
 })
 
 await checkAsOwner('settings: add a nozzle', async () => {
-  await page.goto(`${BASE}/settings`)
+  await page.goto(`${BASE}/settings/equipment`)
   await openPanel('Nozzles')
   const form = page.locator('form')
     .filter({ has: page.locator('select[name=tank_id]') })
@@ -231,6 +308,38 @@ await check('staff: edit salary', async () => {
   await form.locator('input[name=monthly_salary]').fill('21500')
   await submitIn(form)
   await reflects('₹21,500.00')
+})
+
+await check('staff: rotates weekly, and shows this week\'s answer', async () => {
+  await page.goto(`${BASE}/staff`)
+  const block = page.locator('details').filter({ hasText: `Filler ${STAMP}` })
+  await block.locator('summary').click()
+  await page.waitForTimeout(400)
+  const form = block.locator('form')
+  await form.locator('select[name=shift_mode]').selectOption('rotate')
+  await page.waitForTimeout(200)
+  const week = form.locator('select[name=rotation_this_week]')
+  if ((await week.count()) === 0) throw new Error('no "this week" field once rotating is chosen')
+  await week.selectOption('Night')
+  await submitIn(form)
+
+  // Closed, the row now says which shift this week — not a fixed column, a
+  // computed one — and reopening shows the same answer fed back as the
+  // starting point, not last time's raw stored value.
+  await reflects('this week')
+  await page.reload()
+  await page.waitForLoadState('load')
+  await page.waitForTimeout(600)
+  const block2 = page.locator('details').filter({ hasText: `Filler ${STAMP}` })
+  await block2.locator('summary').click()
+  await page.waitForTimeout(400)
+  const form2 = block2.locator('form')
+  if ((await form2.locator('select[name=shift_mode]').inputValue()) !== 'rotate') {
+    throw new Error('rotating was not remembered')
+  }
+  if ((await form2.locator('select[name=rotation_this_week]').inputValue()) !== 'Night') {
+    throw new Error('this week\'s answer was not fed back correctly')
+  }
 })
 
 await check('staff: pay salary', async () => {
@@ -330,16 +439,25 @@ await check('a saved form closes itself', async () => {
 await check('today: the manager is shown her own job', async () => {
   await page.goto(`${BASE}/`, { waitUntil: 'load' })
   const t = await body()
-  if (!t.includes('Your job is to check the day and hand it to the owner')) {
-    throw new Error('the manager is not told what her part is')
-  }
-  const tags = await page.$$eval('a span', (els) =>
-    els.map((e) => e.textContent.trim()).filter((x) => ['Yours', 'Filler', 'Owner', 'Manager'].includes(x)))
-  if (!tags.includes('Filler')) throw new Error('no step is marked as the filler\'s')
-  if (!tags.includes('Owner')) throw new Error('closing the day is not marked as the owner\'s')
-  if (!tags.includes('Yours')) throw new Error("none of the manager's own steps are marked")
 
-  // and the day is the owner's to close, whoever is looking
+  // Her screen is her own work, in her order — not one shared list with other
+  // people's names down the side of it.
+  if (!/Yours to do today/i.test(t)) throw new Error('the manager is not shown her own steps')
+  if (!/Count the cash box/.test(t)) throw new Error("the cash box is not one of her steps")
+  if (!/Send to owner/.test(t)) throw new Error('handing the day over is not one of her steps')
+
+  // The forecourt's half is shown as something that has happened, not as four
+  // more tasks with her name against them.
+  if (!/The forecourt has done/i.test(t)) {
+    throw new Error("the fillers' work is not shown to her as status")
+  }
+
+  // and the month is not hers to see at all
+  if (/This month so far|Left after costs/i.test(t)) {
+    throw new Error('the manager was shown the owner-only month')
+  }
+
+  // the day is the owner's to close, whoever is looking
   await page.goto(`${BASE}/day`, { waitUntil: 'load' })
   const d = await body()
   if (!d.includes('Only the owner closes the day')) {
@@ -353,13 +471,26 @@ await check('today: the manager is shown her own job', async () => {
 await checkAsOwner('today: the owner is shown the review, not the doing', async () => {
   await page.goto(`${BASE}/`, { waitUntil: 'load' })
   const t = await body()
-  if (!t.includes('Only you close the day, once you have looked it over')) {
-    throw new Error('the owner is not told what his part is')
+
+  // He opens on what is waiting for him and on the business, not on a list of
+  // jobs that are somebody else's.
+  if (!/waiting for you|Nothing is waiting for you/i.test(t)) {
+    throw new Error('the owner is not told what is waiting for him')
   }
-  const tags = await page.$$eval('a span', (els) =>
-    els.map((e) => e.textContent.trim()).filter((x) => ['Yours', 'Filler', 'Owner', 'Manager'].includes(x)))
-  if (!tags.includes('Manager')) throw new Error("the manager's steps are not marked for the owner")
-  if (!tags.includes('Yours')) throw new Error("the owner's own step is not marked")
+  if (!/This month so far/i.test(t)) throw new Error('the month is not on the owner\'s screen')
+  if (!/Left after costs/i.test(t)) throw new Error('the owner is not shown what is left')
+
+  // Setting the rate is the manager's job and is not offered to him as a step.
+  if (/Yours to do today/i.test(t)) {
+    throw new Error("the owner was shown the manager's to-do list")
+  }
+
+  // And on the day itself he sees what she counted, not her form to fill in.
+  await page.goto(`${BASE}/day`, { waitUntil: 'load' })
+  const d = await body()
+  if (/Send to owner/.test(d)) {
+    throw new Error("the owner was shown the manager's hand-over form")
+  }
 })
 
 // Nobody signs themselves up. The owner keeps the office accounts, and a
@@ -382,18 +513,24 @@ await check('account: anyone can change their own password', async () => {
   if (!/not your current password/.test(await set('wrongpass1', 'e2epassword1'))) {
     throw new Error('the wrong current password was accepted')
   }
-  if (!/Password changed/.test(await set('pumpbook123', 'e2epassword1'))) {
-    throw new Error('the password did not change')
+
+  // From here the manager's password is not pumpbook123, and every later test
+  // signs in with it. Put it back whatever happens — an assertion that throws
+  // in between must not lock the suite out of its own pump.
+  try {
+    if (!/Password changed/.test(await set('pumpbook123', 'e2epassword1'))) {
+      throw new Error('the password did not change')
+    }
+    await login('manager@test.in', 'e2epassword1')
+  } finally {
+    await page.goto(`${BASE}/account`, { waitUntil: 'load' })
+    const g = page.locator('form').filter({ has: page.locator('input[name=current_password]') })
+    await g.locator('input[name=current_password]').fill('e2epassword1')
+    await g.locator('input[name=password]').fill('pumpbook123')
+    await g.locator('input[name=password_again]').fill('pumpbook123')
+    await g.locator('button[type=submit]').first().click()
+    await page.waitForTimeout(3000)
   }
-  // and put it back, or every later run of this suite cannot sign in
-  await login('manager@test.in', 'e2epassword1')
-  await page.goto(`${BASE}/account`, { waitUntil: 'load' })
-  const g = page.locator('form').filter({ has: page.locator('input[name=current_password]') })
-  await g.locator('input[name=current_password]').fill('e2epassword1')
-  await g.locator('input[name=password]').fill('pumpbook123')
-  await g.locator('input[name=password_again]').fill('pumpbook123')
-  await g.locator('button[type=submit]').first().click()
-  await page.waitForTimeout(3000)
   if (!/Password changed/.test(await body())) throw new Error('the password was not put back')
   await login('manager@test.in')
 })
@@ -560,6 +697,7 @@ await check('customers: add a vehicle', async () => {
 })
 
 await check('customers: edit details', async () => {
+  await openEditor('Customer details')
   const form = page.locator('form')
     .filter({ has: page.locator('input[name=credit_limit]') })
     .filter({ has: page.locator('input[name=id]') })
@@ -608,6 +746,7 @@ await check('shifts: save meter readings', async () => {
   await page.goto(`${BASE}/shifts`)
   await page.locator('a', { hasText: 'Meter readings' }).first().click()
   await page.waitForURL(/\/shifts\/[0-9a-f-]{36}/, { timeout: 15000 })
+  await openEditor('Meter readings')
   const cards = page.locator('input[type=number]')
   // first card: opening, closing, test, rate
   await cards.nth(1).fill('9999')
@@ -615,6 +754,12 @@ await check('shifts: save meter readings', async () => {
   await page.waitForTimeout(3000)
   await page.reload()
   await page.waitForLoadState('networkidle')
+  // Shut, the page must still say what was saved — that is the whole point of
+  // putting the readings behind a pencil.
+  if (!(await body()).includes('9999.00')) {
+    throw new Error('the saved closing reading is not shown with the form closed')
+  }
+  await openEditor('Meter readings')
   const val = await page.locator('input[type=number]').nth(1).inputValue()
   if (Number(val) !== 9999) throw new Error(`closing reading did not persist, got "${val}"`)
 })
@@ -624,6 +769,7 @@ await check('shifts: CNG in kilograms, and cash from a filler', async () => {
   await page.locator('a', { hasText: 'Meter readings' }).first().click()
   await page.waitForURL(/\/shifts\/[0-9a-f-]{36}/, { timeout: 15000 })
 
+  await openEditor('Meter readings')
   const cng = page.locator('[aria-label="CNG readings"]')
   if ((await cng.count()) === 0) throw new Error('no CNG section on the shift screen')
 
@@ -657,6 +803,7 @@ await check('shifts: CNG in kilograms, and cash from a filler', async () => {
   // formatted total only worked while every other filler's box was empty —
   // the moment a second filler handed cash over, the total stopped being
   // this number and the test failed for the wrong reason.
+  await openEditor('Meter readings')
   const kept = await page
     .locator('[aria-label="Handover"] input[type=number]')
     .first()
@@ -684,6 +831,7 @@ await check('money log: sold against how the money came', async () => {
 
   // Every nozzle and dispenser on the shift, petrol through CNG, so every
   // fuel the pump sells has a meter that moved.
+  await openEditor('Meter readings')
   const opens = page.getByLabel('Opening')
   const closes = page.getByLabel('Closing')
   const count = await closes.count()
@@ -712,6 +860,7 @@ await check('money log: sold against how the money came', async () => {
   }
 
   // the money goes in here, on the page that looks like the book
+  await openEditor('Step 1 · write in the money')
   const boxes = page.locator('input[name="cash"], input[name="card"], input[name="upi"], input[name="bpcl"]')
   if ((await boxes.count()) < 4) throw new Error('nowhere to write the money in')
   // A filler may already have handed some over, so the page total is not
@@ -722,12 +871,14 @@ await check('money log: sold against how the money came', async () => {
   await page.reload()
   await page.waitForLoadState('load')
   await page.waitForTimeout(800)
+  await openEditor('Step 1 · write in the money')
   const kept = await page.locator('input[name="upi"]').first().inputValue()
   if (Number(kept) !== 137) {
     throw new Error(`the money did not stay: box holds "${kept}"`)
   }
 
   // the difference belongs to the shift, so it can be written down there
+  await openEditor('Agree the difference')
   const f = page.locator('form').filter({ has: page.locator('input[name=note]') }).first()
   if ((await f.count()) === 0) throw new Error('nowhere to record the difference')
   await f.locator('input[name=note]').fill(`Counted together ${STAMP}`)
@@ -896,6 +1047,7 @@ await check('customers: the account history downloads as a file', async () => {
 console.log('\n=== DAY CLOSE ===')
 await check('day: submit', async () => {
   await page.goto(`${BASE}/day`)
+  await openEditor('Cash counted')
   const form = page.locator('form').filter({ has: page.locator('input[name=counted_cash]') })
   await form.locator('input[name=counted_cash]').fill('4242')
   await submitIn(form, 3000)
@@ -984,6 +1136,7 @@ await check('stock: a manager may read a delivery but not record one', async () 
 
 await check('settings: owner renames the pump (header updates too)', async () => {
   await page.goto(`${BASE}/settings`)
+  await openEditor('Pump details')
   const form = page.locator('form').filter({ has: page.locator('input[name=invoice_prefix]') })
   await form.locator('input[name=name]').fill(`Rathod Petroleum ${STAMP}`)
   await submitIn(form, 3000)
@@ -1046,167 +1199,413 @@ if ((await body()).includes('Reopen day')) {
 }
 await login('counter@test.in')
 
+/** Back to the counter, on whatever shift the device is holding. */
+async function counter() {
+  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
+  await page.waitForTimeout(900)
+}
+
+/** One of the three tabs along the bottom. */
+async function tab(name) {
+  await page.getByRole('button', { name, exact: true }).last().click()
+  await page.waitForTimeout(700)
+}
+
 await check('counter: lands on its own screen', async () => {
   await page.goto(`${BASE}/expenses`)
   await page.waitForURL(/\/counter/, { timeout: 15000 })
-  await page.waitForTimeout(600)
-  // It opens on the shift being worked, not on a question.
+  await page.waitForTimeout(700)
   const t = await body()
-  if (!/Day shift|Night shift/.test(t)) throw new Error(`not the counter screen: ${t}`)
+  if (!/No shift is running|Day shift|Night shift/.test(t)) {
+    throw new Error(`not the counter screen: ${t}`)
+  }
+  // It never asks who is holding it: a shift has several fillers and any one
+  // of them reads the meter.
+  if (/Who are you/.test(t)) throw new Error('the device asked before showing anything')
 })
 
-await check('counter: a filler writes an udhaar slip, on their shift', async () => {
-  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
-  await page.waitForTimeout(700)
-  await page.locator('button', { hasText: /^Udhaar$/ }).first().click()
-  await page.waitForTimeout(500)
-  await page.locator('button', { hasText: 'Udhaar slip' }).first().click()
-  await page.waitForTimeout(700)
-  await page.locator('button', { hasText: 'Ramesh' }).first().click()
-  await page.waitForTimeout(700)
-
-  // The slip belongs to the shift this filler is on, and they said which
-  // when they came on duty. Asking a second time is a chance to answer wrongly.
-  const t2 = await body()
-  if (/Which shift are you on/.test(t2)) {
-    throw new Error('the slip screen asks the shift a second time')
+// Nothing runs until somebody presses start. The clock says which shift is
+// due and stamps the working day; it opens nothing.
+await check('counter: nothing runs until a filler starts it', async () => {
+  await counter()
+  for (let i = 0; i < 3 && /Finish the shift/.test(await body()); i++) {
+    await page.locator('button', { hasText: 'Finish the shift' }).first().click()
+    await page.waitForTimeout(900)
+    await page.locator('button', { hasText: 'The shift is finished' }).first().click()
+    await page.waitForTimeout(2500)
+    await counter()
   }
-  if (!/Goes to/.test(t2)) throw new Error('the slip does not say which shift it lands on')
-
-  const sel = page.locator('select').first()
-  const value = await sel.evaluate((el) => el.options[1]?.value)
-  await sel.selectOption(value)
-  await page.waitForTimeout(300)
-  await page.locator('button', { hasText: /^Diesel$/ }).first().click()
-  await page.waitForTimeout(300)
-  await page.locator('input[type=number]').first().fill('37')
-  await page.locator('button', { hasText: /^(Save|સાચવો)$/ }).first().click()
-  await page.waitForTimeout(3000)
-  if (!(await body()).includes('Saved')) throw new Error('no confirmation after saving')
+  const t = await body()
+  if (!/No shift is running/.test(t)) {
+    throw new Error(`the device did not come to rest: ${t}`)
+  }
+  if (!/The clock does not start it/.test(t)) {
+    throw new Error('the screen does not say the clock will not start it')
+  }
+  // and with nothing running there is nothing to write into
+  const udhaar = page.getByRole('button', { name: 'Udhaar', exact: true }).last()
+  if (!(await udhaar.isDisabled())) throw new Error('a slip could be written with no shift')
 })
 
-// The filler starts and finishes their own shift, and may keep correcting it
-// until the office agrees the figures.
-await check('counter: the clock says which shift, nobody is asked', async () => {
-  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
-  await page.waitForTimeout(800)
+await check('counter: a filler starts the shift, and the book says who', async () => {
+  await counter()
+  await page.locator('button', { hasText: 'Start a shift' }).first().click()
+  await page.waitForTimeout(700)
 
-  // The device opens on the shift being worked. It does not ask who is
-  // holding it — a shift has several fillers and any one of them reads the
-  // meter — and it does not ask which shift, because the clock knows.
+  const t = await body()
+  if (!/Which shift is this/.test(t)) throw new Error('the start sheet does not offer a shift')
+  if (!/not seven o/.test(t)) {
+    throw new Error('the sheet does not say the hour is the moment it is pressed')
+  }
+  if (!/Who is on it/.test(t)) throw new Error('who is standing there is not asked at the start')
+
+  await page.getByRole('button', { name: 'Ramesh', exact: true }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('button').filter({ hasText: /^(Start the shift|Start it again) —/ })
+    .first().click()
+  await page.waitForTimeout(4000)
+
+  // It lands on the shift itself, not the meter walk — nothing needs doing
+  // there at the start any more, since a new shift opens on whatever the
+  // last one closed at. (Whether "Meters" reads as done depends on whether
+  // this exact shift slot was already closed earlier the same day, in an
+  // earlier run — start_shift() reopens it rather than starting fresh, and
+  // reopening keeps whatever readings it already had — so that is not
+  // asserted here; the clean-slate case is covered in test:db instead.)
   const t2 = await body()
-  if (/Who are you|Which shift are you on/.test(t2)) {
-    throw new Error(`the device asked before showing anything: ${t2}`)
-  }
-  const named = ['Day shift', 'Night shift'].filter((w) => t2.includes(w))
-  if (named.length !== 1) {
-    throw new Error(`expected one shift on the screen, got ${named.join(', ') || 'none'}`)
-  }
-  if (!/\dam|\dpm/.test(t2)) throw new Error('the shift does not say what hours it runs')
+  if (!/Running/.test(t2)) throw new Error(`the shift is not running: ${t2}`)
+  if (!/started/.test(t2)) throw new Error('the shift does not say when it began')
+})
 
-  // Start it if nobody has, then the meter must open without asking a name.
-  const start = page.locator('button', { hasText: 'Start the shift' })
-  if ((await start.count()) > 0) {
-    await start.first().click()
-    await page.waitForTimeout(3500)
-    if (!/Running — finish it|waiting for the office/.test(await body())) {
-      throw new Error(`starting the shift did nothing: ${await body()}`)
-    }
+await check('counter: the walk round the forecourt', async () => {
+  await counter()
+  if (!/Reads now/.test(await body())) {
+    await page.locator('button', { hasText: /Meters (read|not read)/ }).first().click()
+    await page.waitForTimeout(800)
   }
-
-  // The meter sheet is one box per nozzle, read without anyone being asked
-  // who is holding the device.
-  const t3 = await body()
-  if (/Who are you|Who is serving/.test(t3)) {
-    throw new Error('the meter reading asked who was pressing it')
-  }
-  if (!/Meter reading/.test(t3)) throw new Error('no meter sheet on the shift tab')
   const meters = page.locator('input[aria-label^="Reads now"]')
-  if ((await meters.count()) === 0) throw new Error('the meter sheet has no meters')
-
-  // Every nozzle and the CNG island, in the order somebody walks them.
   const count = await meters.count()
-  for (let i = 0; i < count; i++) await meters.nth(i).fill(String(4000 + i))
-  await page.locator('button', { hasText: 'Save the reading' }).first().click()
-  await page.waitForTimeout(3500)
-  if (!/At the start/.test(await body())) {
-    throw new Error(`the reading did not stick: ${await body()}`)
-  }
+  if (count === 0) throw new Error('the walk has no meters')
 
-  // And the shift's own hissab, which is what a filler needs at handover.
+  // Every meter above the mark it is compared with: a meter cannot go back.
+  // The mark sits beside its own box, so read it from that row and not from
+  // the card, which holds every row's.
+  const marks = await meters.evaluateAll((boxes) =>
+    boxes.map((box) => {
+      const row = box.parentElement?.parentElement
+      const found = (row?.textContent ?? '').match(/At the start ([0-9.]+)/)
+      return found ? Number(found[1]) : null
+    }))
+  for (let i = 0; i < count; i++) {
+    const base = marks[i] ?? Number((await meters.nth(i).inputValue()) || 0)
+    await meters.nth(i).fill((base + 60 + i).toFixed(3))
+  }
+  await page.waitForTimeout(500)
+  // The figure a filler can check by eye.
+  if (!/Gone through since then/.test(await body())) {
+    throw new Error('the walk does not show what has gone through the nozzle')
+  }
+  const save = page.locator('button', { hasText: 'Save the reading' }).first()
+  if (await save.isDisabled()) throw new Error('Save stayed asleep after the meters changed')
+  await save.click()
+  await page.waitForTimeout(3500)
+
   for (const w of ['Went out of the pump', 'Of that, on udhaar', 'Cash to hand over']) {
     if (!(await body()).includes(w)) throw new Error(`the hissab is missing "${w}"`)
   }
 })
 
-// A shift is worked by several fillers. The office says who is normally on it;
-// the device says who actually turned up, because somebody covers.
-await check('counter: who is on this shift', async () => {
-  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
+await check('counter: an udhaar slip, and the slips written this shift', async () => {
+  await counter()
+  // An exact name: "Udhaar slip" is also inside "4 udhaar slips written",
+  // and hasText matches substrings without regard to case.
+  await page.getByRole('button', { name: 'Udhaar slip', exact: true }).first().click()
   await page.waitForTimeout(800)
-  await page.locator('button', { hasText: 'Who is on' }).first().click()
-  await page.waitForTimeout(700)
 
-  const t2 = await body()
-  if (!/On this shift/.test(t2)) throw new Error('no list of who is on the shift')
-  if (!/Somebody else came in|Nobody is down for this shift/.test(t2)) {
-    throw new Error('no way to say somebody covered')
+  const t = await body()
+  if (/Which shift are you on/.test(t)) throw new Error('the slip asks the shift a second time')
+  if (!/Who is serving/.test(t)) throw new Error('the slip does not ask who served the lorry')
+
+  // Nothing typed yet and nothing found are two different silences, and
+  // used to look identical. A nonsense search says plainly that it found
+  // nobody, rather than leaving an empty box with no explanation.
+  await page.locator('input#counter-customer').fill('Zzz Not A Real Customer Zzz')
+  await page.waitForTimeout(500)
+  if (!(await body()).includes('No customer matches that')) {
+    throw new Error('a search with no matches says nothing about it')
   }
 
-  const sel = page.locator('select').first()
-  if ((await sel.count()) > 0) {
-    const options = await sel.locator('option').allTextContents()
-    if (options.length > 1) {
-      await sel.selectOption({ label: options[1] })
-      await page.locator('button', { hasText: /^Add$/ }).first().click()
-      await page.waitForTimeout(3000)
-      if (!/Covering/.test(await body())) {
-        throw new Error('somebody who came in for a colleague was not marked as covering')
-      }
+  await page.locator('input#counter-customer').fill('Shree')
+  await page.waitForTimeout(600)
+  await page.locator('button', { hasText: /^Shree/ }).first().click()
+  await page.waitForTimeout(400)
+  await page.locator('button', { hasText: /^Diesel$/ }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('input[type=number]').first().fill('43')
+  await page.waitForTimeout(300)
+  await page.getByRole('button', { name: 'Ramesh', exact: true }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: 'Write the slip' }).first().click()
+  await page.waitForTimeout(3500)
+
+  // It lands on the slips written during this shift — which the device could
+  // not show at all before, so a filler could not check their own work.
+  if (!/Udhaar this shift/.test(await body())) {
+    throw new Error(`the slip did not land on the shift's udhaar: ${await body()}`)
+  }
+  if (!/43\.00 L/.test(await body())) throw new Error('the slip is not in the list')
+
+  await page.reload()
+  await page.waitForTimeout(1200)
+  await tab('Udhaar')
+  if (!/43\.00 L/.test(await body())) throw new Error('the slip was GONE after a reload')
+})
+
+await check('counter: a slip written wrong is the filler’s to put right', async () => {
+  await counter()
+  await tab('Udhaar')
+  await page.locator('button', { hasText: /^Fix$/ }).first().click()
+  await page.waitForTimeout(800)
+  await page.locator('input[type=number]').first().fill('46')
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: 'Save the change' }).first().click()
+  await page.waitForTimeout(3500)
+  if (!/46\.00 L/.test(await body())) throw new Error('the correction did not show')
+
+  await page.reload()
+  await page.waitForTimeout(1200)
+  await tab('Udhaar')
+  if (!/46\.00 L/.test(await body())) throw new Error('the correction was GONE after a reload')
+})
+
+await check('counter: the filler counts the cash they hand over', async () => {
+  await counter()
+  // A bare timeout here says nothing about what the device was showing, and
+  // this one has failed in a long run while passing on its own.
+  const step = page.locator('button', { hasText: /Cash (not counted|counted)/ }).first()
+  if ((await step.count()) === 0) {
+    throw new Error(`no cash step on the shift screen — showing: ${(await body()).slice(0, 300)}`)
+  }
+  try {
+    await step.click({ timeout: 10000 })
+  } catch {
+    throw new Error(
+      `could not press the cash step ` +
+      `(visible=${await step.isVisible()} enabled=${await step.isEnabled()} ` +
+      `box=${JSON.stringify(await step.boundingBox())}) — showing: ${(await body()).slice(0, 250)}`)
+  }
+  await page.waitForTimeout(800)
+
+  const t = await body()
+  // The kicker is uppercased in CSS, so innerText comes back shouting.
+  if (!/what the meters say is owed/i.test(t)) {
+    throw new Error('the count does not show what is owed')
+  }
+  if (!/a filler answers for cash/i.test(t)) {
+    throw new Error('the screen does not say the card machine is the pump’s')
+  }
+  if (!/card, upi, bpcl/i.test(await body())) {
+    throw new Error('no card/UPI/BPCL section on the cash screen')
+  }
+
+  // Cash is counted note by note, not typed as one number: open the first
+  // filler's row and fill in a few denominations rather than a lump sum.
+  const fillerRow = page.locator('button').filter({ hasText: /₹|Nothing counted/i }).first()
+  if ((await fillerRow.count()) === 0) throw new Error('nobody to count cash for')
+  await fillerRow.click()
+  await page.waitForTimeout(400)
+
+  const denomBoxes = page.locator('input[id^="cash-"]')
+  if ((await denomBoxes.count()) !== 9) {
+    throw new Error(`expected 9 denomination boxes, got ${await denomBoxes.count()}`)
+  }
+  // ₹500×5 + ₹200×1 + ₹50×1 = 2750, in the largest-first order the boxes list.
+  await denomBoxes.nth(0).fill('5') // ₹500
+  await denomBoxes.nth(1).fill('1') // ₹200
+  await denomBoxes.nth(3).fill('1') // ₹50
+  await page.waitForTimeout(400)
+  if (!(await body()).includes('2,750.00')) {
+    throw new Error('the notes and coins do not add up to the subtotal shown')
+  }
+  await page.getByRole('button', { name: 'Done', exact: true }).first().click()
+  await page.waitForTimeout(300)
+
+  if (!/(less|more) than expected|It tallies/.test(await body())) {
+    throw new Error('the count does not say how it compares with what is owed')
+  }
+  await page.locator('button', { hasText: 'Save the count' }).first().click()
+  await page.waitForTimeout(3500)
+  await reflects('₹2,750.00')
+
+  // And the breakdown itself survives a reload, not just the total.
+  await page.reload()
+  await page.waitForLoadState('load')
+  await page.waitForTimeout(700)
+  const cashStepAgain = page.locator('button', { hasText: /Cash (not counted|counted)/ }).first()
+  await cashStepAgain.click()
+  await page.waitForTimeout(600)
+  await page.locator('button').filter({ hasText: '2,750.00' }).first().click()
+  await page.waitForTimeout(400)
+  const kept = page.locator('input[id^="cash-"]')
+  if ((await kept.nth(0).inputValue()) !== '5') throw new Error('the ₹500 count did not survive a reload')
+  if ((await kept.nth(1).inputValue()) !== '1') throw new Error('the ₹200 count did not survive a reload')
+  if ((await kept.nth(3).inputValue()) !== '1') throw new Error('the ₹50 count did not survive a reload')
+})
+
+await check('counter: card and UPI are handled at the nozzle, and subtract from what is owed', async () => {
+  await counter()
+  await page.locator('button', { hasText: /Cash (not counted|counted)/ }).first().click()
+  await page.waitForTimeout(700)
+
+  const owed = page.locator('span.text-\\[32px\\]').first()
+
+  // A run before this one may have already saved a card/UPI figure here, and
+  // this shift is reused run after run — so the baseline is whatever is
+  // actually in the boxes now, zeroed first, not an assumed clean slate.
+  await page.locator('#pay-card').fill('0')
+  await page.locator('#pay-upi').fill('0')
+  await page.locator('#pay-bpcl').fill('0')
+  await page.waitForTimeout(400)
+  const before = Number((await owed.innerText()).replace(/[₹,]/g, ''))
+
+  // Whoever swiped the card or showed the QR knows the shift's own total —
+  // one figure each, not counted per filler the way cash is.
+  await page.locator('#pay-card').fill('700')
+  await page.locator('#pay-upi').fill('300')
+  await page.waitForTimeout(400)
+  const after = Number((await owed.innerText()).replace(/[₹,]/g, ''))
+  if (before - after !== 1000) {
+    throw new Error(`typing ₹700 card + ₹300 UPI should drop what's owed by exactly ₹1,000: ${before} -> ${after}`)
+  }
+
+  await page.locator('button', { hasText: 'Save the count' }).first().click()
+  await page.waitForTimeout(3000)
+
+  // Saving moves off the cash screen back to the shift itself, so the figure
+  // is checked by reopening it — not by reflects(), which only ever looks at
+  // whatever screen is showing right after the action.
+  await page.reload()
+  await page.waitForLoadState('load')
+  await page.waitForTimeout(700)
+  await page.locator('button', { hasText: /Cash (not counted|counted)/ }).first().click()
+  await page.waitForTimeout(700)
+  if ((await page.locator('#pay-card').inputValue()) !== '700') {
+    throw new Error('the card total did not survive a reload')
+  }
+
+  // It reaches the office's own money log, the same row, not a copy of it.
+  await login('manager@test.in')
+  await page.goto(`${BASE}/moneylog`, { waitUntil: 'load' })
+  await page.waitForTimeout(700)
+  if (!(await body()).includes('700.00')) {
+    throw new Error('the card total the counter entered does not show on the money log')
+  }
+  await login('counter@test.in')
+})
+
+await check('counter: the device says which shift it is on, and moves', async () => {
+  await counter()
+  await page.getByRole('button', { name: /Which shift/ }).first().click()
+  await page.waitForTimeout(800)
+
+  const t = await body()
+  if (!/today at the pump/i.test(t)) throw new Error('the picker does not show the working day')
+  if (!/presses start, not when the clock/.test(t)) {
+    throw new Error('the picker still says the clock starts a shift')
+  }
+
+  // Onto the other half of the day, which must say loudly that it is not the
+  // shift being worked — a slip written there would leave this one short.
+  const other = page.locator('button').filter({ hasText: /^Day shift/ }).first()
+  if ((await other.count()) === 0) throw new Error('the other shift is not offered')
+  await other.click()
+  await page.waitForTimeout(3000)
+  if (!/This is not the shift running now|Running/.test(await body())) {
+    throw new Error(`moving shift said nothing: ${await body()}`)
+  }
+  const back = page.locator('text=Back to the shift running now')
+  if ((await back.count()) > 0) {
+    await back.first().click()
+    await page.waitForTimeout(3000)
+    if (/This is not the shift running now/.test(await body())) {
+      throw new Error('going back did not return to the running shift')
     }
   }
 })
 
-// A slip belongs to whoever served the lorry, so that one does ask.
-await check('counter: the slip asks who is serving', async () => {
-  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
-  await page.waitForTimeout(800)
-  await page.locator('button', { hasText: /^Udhaar$/ }).first().click()
-  await page.waitForTimeout(600)
-  await page.locator('button', { hasText: 'Udhaar slip' }).first().click()
-  await page.waitForTimeout(800)
-  if (!/Who is serving/.test(await body())) {
-    throw new Error('the slip did not ask who was serving')
+// A shift is worked by several fillers. Who is standing there is settled when
+// it starts, and changed here when the night turns out differently.
+await check('counter: who is on this shift', async () => {
+  await counter()
+  await tab('Who is on')
+  const t = await body()
+  if (!/On this shift/.test(t)) throw new Error('no list of who is on the shift')
+  if (!/Somebody else came in|Nobody is down for this shift/.test(t)) {
+    throw new Error('no way to say somebody covered')
   }
-  await page.locator('button', { hasText: 'Ramesh' }).first().click()
-  await page.waitForTimeout(800)
-  if (!/Goes to/.test(await body())) throw new Error('the slip does not name its shift')
+
+  const add = page.locator('button', { hasText: /^Filler / }).first()
+  if ((await add.count()) > 0) {
+    const name = (await add.innerText()).split('\n').pop()
+    await add.click()
+    await page.waitForTimeout(3000)
+    if (!/Covering/.test(await body())) {
+      throw new Error('somebody who came in for a colleague was not marked as covering')
+    }
+    const off = page.locator('button', { hasText: /^Remove$/ })
+    if ((await off.count()) > 1) {
+      await off.last().click()
+      await page.waitForTimeout(2500)
+    }
+    if (!name) throw new Error('the cover had no name')
+  }
 })
 
-await check('counter: a filler closes their own shift', async () => {
-  await page.goto(`${BASE}/counter`, { waitUntil: 'load' })
-  await page.waitForTimeout(800)
+await check('counter: the shift is handed in', async () => {
+  await counter()
+  await page.locator('button', { hasText: 'Finish the shift' }).first().click()
+  await page.waitForTimeout(900)
 
-  // A previous run may have left it handed in. Reopening is the filler's too,
-  // so use it to get back to a shift they can close.
-  const reopen = page.locator('button', { hasText: 'Reopen to fix something' })
-  if ((await reopen.count()) > 0) {
-    await reopen.first().click()
-    await page.waitForTimeout(3000)
-  }
+  const t = await body()
+  if (!/Hand in the shift/.test(t)) throw new Error('no hand-in sheet')
+  if (!/Who worked it/.test(t)) throw new Error('the sheet does not name who worked it')
 
-  const finish = page.locator('button', { hasText: 'The shift is finished' })
-  if ((await finish.count()) === 0) {
-    throw new Error(`no way for a filler to close the shift: ${await body()}`)
-  }
-  await finish.first().click()
-  await page.waitForTimeout(3000)
+  await page.locator('button', { hasText: 'The shift is finished' }).first().click()
+  await page.waitForTimeout(3500)
 
-  const t3 = await body()
-  if (!/waiting for the office/.test(t3)) throw new Error('the shift did not read as handed in')
-  if ((await page.locator('button', { hasText: 'Reopen to fix something' }).count()) === 0) {
-    throw new Error('the filler cannot reopen their own shift before it is agreed')
+  await counter()
+  const t2 = await body()
+  if (!/No shift is running|Handed in/.test(t2)) {
+    throw new Error(`the shift did not read as handed in: ${t2}`)
   }
+})
+
+await check('counter: the device can be handed back', async () => {
+  // Signed in as the pump there was no way off this screen at all — no sign
+  // out, and every other route redirects back here — so a device could not be
+  // handed to the office without clearing the browser.
+  await counter()
+  const out = page.getByRole('button', { name: 'Sign out', exact: true })
+  if ((await out.count()) === 0) throw new Error('the counter offers no way to sign out')
+  await out.first().click()
+  await page.waitForTimeout(600)
+
+  const sheet = await body()
+  if (!/Sign this device out\?/.test(sheet)) throw new Error('no hand-back sheet')
+  // It must say what it does and does not cost, or nobody on the forecourt
+  // dares press it.
+  if (!/Nothing is lost/.test(sheet)) throw new Error('the sheet does not say the shift is safe')
+  if (!/password/.test(sheet)) throw new Error('the sheet does not warn about signing back in')
+
+  // Backing out leaves the device exactly where it was.
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.waitForTimeout(500)
+  if (/Sign this device out\?/.test(await body())) throw new Error('Cancel did not go back')
+
+  await page.getByRole('button', { name: 'Sign out', exact: true }).first().click()
+  await page.waitForTimeout(500)
+  await page.locator('button:has-text("Sign out")').last().click()
+  await page.waitForURL(/\/login/, { timeout: 30000 })
 })
 
 await check('shifts: the office agrees the figures, and the filler is out', async () => {
@@ -1234,11 +1633,13 @@ await check('counter: the slip reached the books, on the shift it was tagged to'
   await login('manager@test.in')
   await page.goto(`${BASE}/credit`)
   const lines = (await body()).split('\n')
-  const at = lines.findIndex((l) => l.includes('37.00 L'))
+  // The quantity the counter section wrote, after the filler corrected it.
+  const at = lines.findIndex((l) => l.includes('46.00 L'))
   if (at < 0) throw new Error('the counter slip is not in the credit list')
-  // The row carries its shift, and the filler said night.
-  if (!lines.slice(Math.max(0, at - 3), at + 2).join(' | ').includes('Night shift')) {
-    throw new Error('the slip did not land on the night shift')
+  // The row carries whichever shift was running when it was written — which
+  // one that is depends on the hour the suite runs, but it must be one of them.
+  if (!/Day shift|Night shift/.test(lines.slice(Math.max(0, at - 3), at + 2).join(' | '))) {
+    throw new Error('the slip did not land on a shift')
   }
 })
 
@@ -1275,7 +1676,7 @@ await check('credit: a slip names its shift', async () => {
 
 // Equipment is the owner's, and every change is recorded.
 await checkAsOwner('settings: owner edits and deletes a nozzle', async () => {
-  await page.goto(`${BASE}/settings`)
+  await page.goto(`${BASE}/settings/equipment`)
   await openPanel('Add — Nozzles')
   const f = page.locator('form')
     .filter({ has: page.locator('select[name=tank_id]') })
@@ -1299,7 +1700,7 @@ await checkAsOwner('settings: owner edits and deletes a nozzle', async () => {
 })
 
 await check('settings: manager cannot touch the equipment', async () => {
-  await page.goto(`${BASE}/settings`)
+  await page.goto(`${BASE}/settings/equipment`)
   const t2 = await body()
   if (!t2.includes('Only an owner can add or change')) {
     throw new Error('the manager was not told the equipment is owner-only')
