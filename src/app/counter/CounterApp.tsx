@@ -10,8 +10,8 @@ import { useLang, useT } from '@/lib/i18n/client'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatDateLong, formatTime, money, quantity } from '@/lib/format'
 import type {
-  CreditSale, FuelType, NozzleState, Shift, ShiftCashDenomination, ShiftCollection,
-  ShiftFiller, ShiftMeter, Staff, UserRole, Vehicle,
+  CreditSale, FuelRate, FuelType, NozzleState, Shift, ShiftCashDenomination,
+  ShiftCollection, ShiftFiller, ShiftMeter, Staff, UserRole, Vehicle,
 } from '@/lib/database.types'
 import { LanguageSeg } from '@/components/AppNav'
 import { Alert, Badge, Button, Field, Input, NumberInput, Select } from '@/components/ui'
@@ -70,6 +70,7 @@ export function CounterApp({
   staff,
   nozzles,
   fuels,
+  rates,
   customers,
   vehicles,
   shifts,
@@ -77,6 +78,7 @@ export function CounterApp({
   meters,
   now,
   opening,
+  initialMeterTab,
   fillers,
   slips,
   collections,
@@ -94,6 +96,8 @@ export function CounterApp({
   staff: Staff[]
   nozzles: NozzleState[]
   fuels: FuelType[]
+  /** today's price per fuel, so a filler can answer without opening a slip */
+  rates: FuelRate[]
   customers: CounterCustomer[]
   vehicles: Vehicle[]
   /** today's shifts and yesterday's, for the bar and the picker */
@@ -106,6 +110,8 @@ export function CounterApp({
   now: string
   /** which screen to land on, for a move that remounts this one */
   opening: 'home' | 'meters'
+  /** opening and closing are the same page, a tab apart — which one to land on */
+  initialMeterTab: 'opening' | 'closing'
   fillers: ShiftFiller[]
   slips: CreditSale[]
   collections: ShiftCollection[]
@@ -121,6 +127,7 @@ export function CounterApp({
   const [pending, startTransition] = useTransition()
 
   const [view, setView] = useState<View>(opening)
+  const [meterTab, setMeterTab] = useState<'opening' | 'closing'>(initialMeterTab)
   const [tab, setTab] = useState<Tab>('shift')
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<CreditSale | null>(null)
@@ -167,6 +174,12 @@ export function CounterApp({
         router.refresh()
       }
     })
+  }
+
+  /** Opening and closing are one page with two tabs now, not two screens. */
+  function goToMeters(tab: 'opening' | 'closing') {
+    setMeterTab(tab)
+    setView('meters')
   }
 
   /** Move the whole device onto another shift. Everything written follows it. */
@@ -329,6 +342,46 @@ export function CounterApp({
     </div>
   ) : null
 
+  /* A customer at the nozzle asks the price before anyone has opened a slip
+     or a meter box — so it sits here, not buried inside either. One rate per
+     fuel, read-only: the counter shows it, `/rates` is where it changes. */
+  const ratesStrip =
+    rates.length > 0 ? (
+      <div className="flex gap-2 overflow-x-auto px-4 pb-2.5 pt-0.5">
+        {rates.map((r) => {
+          const name = lang === 'gu' && r.name_gu ? r.name_gu : r.name
+          return (
+            <div
+              key={r.fuel_type_id}
+              aria-label={`${t('rate.today')} — ${name}: ${
+                r.sale_rate != null ? `₹${Number(r.sale_rate).toFixed(2)}/${r.unit}` : '—'
+              }${r.set_today ? '' : ` — ${t('rate.staleWarning')}`}`}
+              className={`flex shrink-0 items-center gap-2 rounded-full px-3.5 py-2 ${
+                r.set_today ? 'bg-surface' : 'bg-accent-100'
+              }`}
+            >
+              <span
+                aria-hidden
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ background: r.color }}
+              />
+              <span className="text-[13.5px] font-semibold">{name}</span>
+              <span className="tabular text-[15px] font-bold">
+                {r.sale_rate != null ? `₹${Number(r.sale_rate).toFixed(2)}` : '—'}
+                <span className="text-[11.5px] font-semibold text-neutral-700">/{r.unit}</span>
+              </span>
+              {!r.set_today ? (
+                <TriangleAlert
+                  className="size-3.5 shrink-0 text-accent-800"
+                  aria-hidden
+                />
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
+    ) : null
+
   /* ------------------------------------------------------ the screens -- */
   let screen: React.ReactNode = null
 
@@ -350,10 +403,12 @@ export function CounterApp({
             // Onto the shift that was actually opened. Without naming it the
             // device would stay pinned to whatever ?shift= was last picked.
             // Nothing about the meters needs doing here any more — a new
-            // shift already opens on whatever the last one closed at.
+            // shift already opens on whatever the last one closed at — but
+            // that is worth showing, not leaving invisible until somebody
+            // happens to go looking for it.
             ({ id }) => {
-              setView('home')
-              router.replace(id ? `/counter?shift=${id}` : '/counter')
+              goToMeters('opening')
+              router.replace(id ? `/counter?shift=${id}&view=opening` : '/counter?view=opening')
             },
           )
         }
@@ -390,6 +445,8 @@ export function CounterApp({
     screen = (
       <MeterSheet
         meters={meters}
+        tab={meterTab}
+        onTabChange={setMeterTab}
         locked={Boolean(locked)}
         pending={pending}
         onBack={() => setView('home')}
@@ -502,6 +559,7 @@ export function CounterApp({
         locked={Boolean(locked)}
         nameOf={nameOf}
         canWrite={shift.business_date === today && !locked}
+        elsewhere={elsewhere}
         onWrite={() => {
           setEditing(null)
           setView('slip')
@@ -510,6 +568,8 @@ export function CounterApp({
           setEditing(slip)
           setView('slip')
         }}
+        onBackToRunning={() => runningNow && goToShift(runningNow.id)}
+        onStart={() => setView('start')}
       />
     )
   } else if (tab === 'team') {
@@ -537,6 +597,7 @@ export function CounterApp({
         hissab={hissab}
         pending={pending}
         onGo={setView}
+        onGoMeters={goToMeters}
         onBackToRunning={() => runningNow && goToShift(runningNow.id)}
         onReopen={() => run(() => reopenShiftAction(shift.id))}
         onNewSlip={() => {
@@ -553,10 +614,14 @@ export function CounterApp({
      there is nothing to put in them yet — so the device does not look like a
      different app between shifts. */
   const sheet = view === 'start' || view === 'switch' || view === 'signout'
+  // Resting or the shift's own home — not the meter walk, a slip, the cash
+  // count or hand-in, where a row of prices would only be in the way.
+  const home = !sheet && (!shift || view === 'home')
 
   return (
     <div className="flex min-h-dvh flex-col bg-bg">
       {header}
+      {home ? ratesStrip : null}
       {sheet || !shift ? null : shiftBar}
       {banner}
       <main className="mx-auto w-full max-w-2xl flex-1">{screen}</main>
@@ -951,6 +1016,29 @@ function StartSheet({
   )
 }
 
+/**
+ * The device is on a shift that is not the one actually running — legitimate,
+ * because a slip written at 7.05 belongs to the shift that has just gone, but
+ * it must never happen quietly. Shown wherever writing something is possible,
+ * not just on the shift's own home screen.
+ */
+function ElsewhereBanner({ shiftName, onBack }: { shiftName: string; onBack: () => void }) {
+  const t = useT()
+  return (
+    <button
+      type="button"
+      onClick={onBack}
+      className="mb-2.5 flex w-full items-center gap-3 rounded-[18px] border border-danger-200 bg-danger-100 px-4 py-3 text-left"
+    >
+      <TriangleAlert className="size-5 shrink-0 text-danger" aria-hidden />
+      <span className="text-[13.5px] leading-snug">
+        {t('counter.notThisShift')} <strong>{shiftName}</strong>.{' '}
+        <span className="font-semibold underline">{t('counter.backToRunning')}</span>
+      </span>
+    </button>
+  )
+}
+
 /* --------------------------------------------------------------- home -- */
 function ShiftHome({
   shift,
@@ -963,6 +1051,7 @@ function ShiftHome({
   hissab,
   pending,
   onGo,
+  onGoMeters,
   onBackToRunning,
   onReopen,
   onNewSlip,
@@ -979,6 +1068,8 @@ function ShiftHome({
   hissab: { sold: number; udhaar: number; cash: number; counted: number }
   pending: boolean
   onGo: (view: View) => void
+  /** opening and closing are the same page, a tab apart */
+  onGoMeters: (tab: 'opening' | 'closing') => void
   onBackToRunning: () => void
   onReopen: () => void
   onNewSlip: () => void
@@ -995,17 +1086,7 @@ function ShiftHome({
   return (
     <div className="px-4 pb-4">
       {elsewhere ? (
-        <button
-          type="button"
-          onClick={onBackToRunning}
-          className="mb-2.5 flex w-full items-center gap-3 rounded-[18px] border border-danger-200 bg-danger-100 px-4 py-3 text-left"
-        >
-          <TriangleAlert className="size-5 shrink-0 text-danger" aria-hidden />
-          <span className="text-[13.5px] leading-snug">
-            {t('counter.notThisShift')} <strong>{shiftLabel(t, shift.name)}</strong>.{' '}
-            <span className="font-semibold underline">{t('counter.backToRunning')}</span>
-          </span>
-        </button>
+        <ElsewhereBanner shiftName={shiftLabel(t, shift.name)} onBack={onBackToRunning} />
       ) : null}
 
       <div
@@ -1054,6 +1135,9 @@ function ShiftHome({
           <Kick>{shift.status === 'open' ? t('counter.whatIsLeft') : t('counter.stillYours')}</Kick>
         </div>
 
+        {/* One page, two tabs, not a checklist step and a stray link to two
+            different screens — opening and closing are the same walk, and the
+            opening tab stays one tap away inside it once the shift starts. */}
         <Step
           done={closed}
           n={1}
@@ -1063,7 +1147,7 @@ function ShiftHome({
               ? `${meters.filter((m) => m.confirmed).length}`
               : t('counter.walkSub')
           }
-          onClick={() => onGo('meters')}
+          onClick={() => onGoMeters('closing')}
         />
         <Step
           done={slips.length > 0}
@@ -1181,24 +1265,32 @@ function Step({
 
 /* ----------------------------------------------------- the meter walk -- */
 /**
- * Every nozzle on the forecourt, one box each.
+ * Opening and closing, a tab apart — not two screens, because they are the
+ * same walk round the forecourt, just read at opposite ends of a shift.
  *
- * This is the walk whoever is finishing the shift does, before they go: the
- * pumps in order, then the CNG island. One number per meter — what it says
- * now — becomes this shift's own closing. Nothing here touches any other
- * shift; the one that starts next simply opens on whatever this one closes
- * at, the moment it is started. What it shows back is the difference since
- * this shift's own opening, because that is the figure a filler can check by
- * eye, and a mistyped meter prices the whole shift.
+ * Opening is read-only: every number on it was copied in from whichever
+ * shift closed last, the moment this one started, so there is nothing to
+ * type and nothing to wait for — it is here to be seen, not acted on.
+ * Closing is whoever is finishing the shift's own walk: the pumps in order,
+ * then the CNG island, one number per meter, and that number becomes this
+ * shift's own closing. Nothing on either tab touches any other shift; the
+ * one that starts next simply opens on whatever this one closes at. What
+ * the closing tab shows back is the difference since this shift's own
+ * opening, because that is the figure a filler can check by eye, and a
+ * mistyped meter prices the whole shift.
  */
 function MeterSheet({
   meters,
+  tab,
+  onTabChange,
   locked,
   pending,
   onBack,
   onSave,
 }: {
   meters: ShiftMeter[]
+  tab: 'opening' | 'closing'
+  onTabChange: (tab: 'opening' | 'closing') => void
   locked: boolean
   pending: boolean
   onBack: () => void
@@ -1250,96 +1342,164 @@ function MeterSheet({
 
   return (
     <div className="pb-6">
-      <Head title={t('counter.walkTitle')} sub={t('counter.walkSub')} onBack={onBack} />
+      <Head
+        title={tab === 'opening' ? t('counter.openingTitle') : t('counter.walkTitle')}
+        sub={tab === 'opening' ? t('counter.openingSub') : t('counter.walkSub')}
+        onBack={onBack}
+      />
 
       <div className="px-4">
-        <div className="rounded-[var(--radius-card)] bg-surface px-4.5 pt-1 pb-4">
-          {meters.map((m, i) => {
-            const delta = deltaOf(m)
-            return (
-              <div
-                key={m.meter_id}
-                className={`py-3 ${i === meters.length - 1 ? '' : 'border-b border-neutral-300'}`}
-              >
-                <div className="flex items-center justify-between gap-3">
+        <div
+          role="tablist"
+          aria-label={t('counter.walkTitle')}
+          className="mb-3 grid grid-cols-2 gap-1 rounded-full bg-neutral-200 p-1"
+        >
+          {(['opening', 'closing'] as const).map((tb) => (
+            <button
+              key={tb}
+              type="button"
+              role="tab"
+              aria-selected={tab === tb}
+              onClick={() => onTabChange(tb)}
+              className={`rounded-full py-2.5 text-[14.5px] font-bold transition ${
+                tab === tb ? 'bg-bg text-text' : 'text-neutral-700'
+              }`}
+            >
+              {tb === 'opening' ? t('counter.openingTab') : t('counter.closingTab')}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'opening' ? (
+          <>
+            <div className="rounded-[var(--radius-card)] bg-surface px-4.5 pt-1 pb-2">
+              {meters.map((m, i) => (
+                <div
+                  key={m.meter_id}
+                  className={`flex items-center justify-between gap-3 py-3 ${
+                    i === meters.length - 1 ? '' : 'border-b border-neutral-300'
+                  }`}
+                >
                   <div className="min-w-0">
                     <div className="text-[16px] font-semibold">{m.name}</div>
-                    <div className="tabular text-[12.5px] text-neutral-700">
-                      {m.fuel_name}
-                      {before(m) != null
-                        ? ` · ${t('counter.meterWas')} ${before(m)!.toFixed(2)}`
-                        : ''}
-                    </div>
+                    <div className="text-[12.5px] text-neutral-700">{m.fuel_name}</div>
                   </div>
-                  <div className="w-[9.5rem] shrink-0">
-                    <NumberInput
-                      step="0.001"
-                      disabled={locked}
-                      aria-label={`${t('counter.meterNow')} — ${m.name}`}
-                      className="py-3 text-right text-[22px] font-bold"
-                      value={v[m.meter_id] ?? ''}
-                      onChange={(e) =>
-                        setV((prev) => ({ ...prev, [m.meter_id]: e.target.value }))
-                      }
-                    />
+                  <div className="shrink-0 text-right">
+                    {m.opening_reading != null ? (
+                      <span className="tabular text-[20px] font-bold">
+                        {Number(m.opening_reading).toFixed(2)}
+                      </span>
+                    ) : (
+                      <span className="text-[13px] font-semibold text-accent-800">
+                        {t('counter.openingNotSet')}
+                      </span>
+                    )}
                   </div>
                 </div>
-                {delta != null && delta !== 0 ? (
+              ))}
+            </div>
+
+            {meters.some((m) => m.opening_reading == null) ? (
+              <p className="mt-3 px-1 text-[13px] leading-relaxed text-neutral-700">
+                {t('counter.openingNotSetHint')}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <div className="rounded-[var(--radius-card)] bg-surface px-4.5 pt-1 pb-4">
+              {meters.map((m, i) => {
+                const delta = deltaOf(m)
+                return (
                   <div
-                    className={`mt-2 flex items-center justify-between rounded-2xl px-3.5 py-2 ${
-                      delta < 0
-                        ? 'bg-danger-100 text-danger'
-                        : 'bg-accent-2-200 text-accent-2-900'
-                    }`}
+                    key={m.meter_id}
+                    className={`py-3 ${i === meters.length - 1 ? '' : 'border-b border-neutral-300'}`}
                   >
-                    <span className="text-[13.5px]">{t('counter.sinceLast')}</span>
-                    <span className="tabular text-[17px] font-bold">
-                      {quantity(delta, m.unit)}
-                    </span>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[16px] font-semibold">{m.name}</div>
+                        <div className="text-[12.5px] text-neutral-700">{m.fuel_name}</div>
+                      </div>
+                      <div className="w-[9.5rem] shrink-0">
+                        {/* Its own line, not a clause tucked after the fuel
+                            name — when nothing has sold yet this equals the
+                            box below it, and the two have to read as two
+                            numbers even then, not one figure said twice. */}
+                        <div className="tabular pb-1 text-right text-[12.5px] font-semibold text-neutral-800">
+                          {before(m) != null
+                            ? `${t('counter.meterWas')} ${before(m)!.toFixed(2)}`
+                            : ' '}
+                        </div>
+                        <NumberInput
+                          step="0.001"
+                          disabled={locked}
+                          aria-label={`${t('counter.meterNow')} — ${m.name}`}
+                          className="py-3 text-right text-[22px] font-bold"
+                          value={v[m.meter_id] ?? ''}
+                          onChange={(e) =>
+                            setV((prev) => ({ ...prev, [m.meter_id]: e.target.value }))
+                          }
+                        />
+                      </div>
+                    </div>
+                    {delta != null && delta !== 0 ? (
+                      <div
+                        className={`mt-2 flex items-center justify-between rounded-2xl px-3.5 py-2 ${
+                          delta < 0
+                            ? 'bg-danger-100 text-danger'
+                            : 'bg-accent-2-200 text-accent-2-900'
+                        }`}
+                      >
+                        <span className="text-[13.5px]">{t('counter.sinceLast')}</span>
+                        <span className="tabular text-[17px] font-bold">
+                          {quantity(delta, m.unit)}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                )
+              })}
+            </div>
+
+            {backwards.length > 0 ? (
+              <div className="mt-3">
+                <Alert tone="danger">
+                  <strong>{list(backwards)}</strong> — {t('counter.meterBackwards')}
+                </Alert>
               </div>
-            )
-          })}
-        </div>
+            ) : unusual.length > 0 ? (
+              <div className="mt-3">
+                <Alert tone="accent">
+                  <strong>{list(unusual)}</strong> — {t('counter.meterUnusual')}
+                </Alert>
+              </div>
+            ) : null}
 
-        {backwards.length > 0 ? (
-          <div className="mt-3">
-            <Alert tone="danger">
-              <strong>{list(backwards)}</strong> — {t('counter.meterBackwards')}
-            </Alert>
-          </div>
-        ) : unusual.length > 0 ? (
-          <div className="mt-3">
-            <Alert tone="accent">
-              <strong>{list(unusual)}</strong> — {t('counter.meterUnusual')}
-            </Alert>
-          </div>
-        ) : null}
+            <p className="mt-3 px-1 text-[13px] leading-relaxed text-neutral-700">
+              {t('counter.meterHint')}
+            </p>
 
-        <p className="mt-3 px-1 text-[13px] leading-relaxed text-neutral-700">
-          {t('counter.meterHint')}
-        </p>
-
-        <div className="mt-3">
-          <Button
-            size="lg"
-            className="w-full"
-            disabled={pending || !dirty || backwards.length > 0 || locked}
-            onClick={() =>
-              onSave(
-                meters
-                  .filter((m) => m.kind === 'nozzle')
-                  .map((m) => ({ nozzle_id: m.meter_id, reading: v[m.meter_id] ?? '' })),
-                meters
-                  .filter((m) => m.kind === 'cng')
-                  .map((m) => ({ dispenser_id: m.meter_id, reading: v[m.meter_id] ?? '' })),
-              )
-            }
-          >
-            {pending ? t('common.saving') : t('counter.saveReading')}
-          </Button>
-        </div>
+            <div className="mt-3">
+              <Button
+                size="lg"
+                className="w-full"
+                disabled={pending || !dirty || backwards.length > 0 || locked}
+                onClick={() =>
+                  onSave(
+                    meters
+                      .filter((m) => m.kind === 'nozzle')
+                      .map((m) => ({ nozzle_id: m.meter_id, reading: v[m.meter_id] ?? '' })),
+                    meters
+                      .filter((m) => m.kind === 'cng')
+                      .map((m) => ({ dispenser_id: m.meter_id, reading: v[m.meter_id] ?? '' })),
+                  )
+                }
+              >
+                {pending ? t('common.saving') : t('counter.saveReading')}
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -1355,9 +1515,12 @@ function SlipList({
   hours,
   locked,
   canWrite,
+  elsewhere,
   nameOf,
   onWrite,
   onFix,
+  onBackToRunning,
+  onStart,
 }: {
   slips: CreditSale[]
   customers: CounterCustomer[]
@@ -1368,9 +1531,13 @@ function SlipList({
   locked: boolean
   /** a new slip belongs to the working day, so an older shift only gets fixes */
   canWrite: boolean
+  /** the device is on a shift other than the one being worked */
+  elsewhere: boolean
   nameOf: (s: { name: string; name_gu?: string | null }) => string
   onWrite: () => void
   onFix: (slip: CreditSale) => void
+  onBackToRunning: () => void
+  onStart: () => void
 }) {
   const t = useT()
   const total = slips.reduce((sum, s) => sum + Number(s.amount), 0)
@@ -1391,6 +1558,10 @@ function SlipList({
         </div>
       </div>
 
+      {elsewhere ? (
+        <ElsewhereBanner shiftName={shiftLabel(t, shift.name)} onBack={onBackToRunning} />
+      ) : null}
+
       {canWrite ? (
         <Button size="lg" className="mb-3 w-full" onClick={onWrite}>
           <Plus className="size-5" aria-hidden />
@@ -1399,6 +1570,15 @@ function SlipList({
       ) : locked ? null : (
         <div className="mb-3">
           <Alert tone="accent">{t('counter.olderShift')}</Alert>
+          {/* elsewhere already offers the way back to whatever IS running;
+              this is the other dead end — nothing is running for today at
+              all, and a filler landing straight on Udhaar must not be left
+              with no way forward. */}
+          {elsewhere ? null : (
+            <Button size="lg" className="mt-2.5 w-full" onClick={onStart}>
+              {t('counter.startAShift')}
+            </Button>
+          )}
         </div>
       )}
 

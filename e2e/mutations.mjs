@@ -1224,6 +1224,21 @@ await check('counter: lands on its own screen', async () => {
   if (/Who are you/.test(t)) throw new Error('the device asked before showing anything')
 })
 
+await check('counter: today\'s rate, without opening a slip', async () => {
+  await counter()
+  const t = await body()
+  if (!/Petrol/.test(t) || !/₹\d/.test(t)) {
+    throw new Error(`no rate shown on the counter's own screen: ${t.slice(0, 200)}`)
+  }
+  // It is in the way on a task screen, where it is not what the step is about.
+  await page.locator('button', { hasText: /Meters (read|not read)/ }).first().click()
+  await page.waitForTimeout(600)
+  const top = (await body()).split('\n').slice(0, 6).join(' ')
+  if (/₹\d+\.\d+\/[Lk]/.test(top)) {
+    throw new Error('the rate strip is still showing on the meter walk')
+  }
+})
+
 // Nothing runs until somebody presses start. The clock says which shift is
 // due and stamps the working day; it opens nothing.
 await check('counter: nothing runs until a filler starts it', async () => {
@@ -1265,16 +1280,57 @@ await check('counter: a filler starts the shift, and the book says who', async (
     .first().click()
   await page.waitForTimeout(4000)
 
-  // It lands on the shift itself, not the meter walk — nothing needs doing
-  // there at the start any more, since a new shift opens on whatever the
-  // last one closed at. (Whether "Meters" reads as done depends on whether
-  // this exact shift slot was already closed earlier the same day, in an
-  // earlier run — start_shift() reopens it rather than starting fresh, and
-  // reopening keeps whatever readings it already had — so that is not
-  // asserted here; the clean-slate case is covered in test:db instead.)
+  // It lands on the meters page, Opening tab selected — a read-only review
+  // of what the shift opened at. Nothing to type, nothing to wait for, since
+  // a new shift already opens on whatever the last one closed at. This is
+  // that figure, surfaced on its own instead of staying invisible until
+  // somebody happens to flip to the Closing tab.
   const t2 = await body()
-  if (!/Running/.test(t2)) throw new Error(`the shift is not running: ${t2}`)
-  if (!/started/.test(t2)) throw new Error('the shift does not say when it began')
+  if (!/What this shift opened at/.test(t2)) {
+    throw new Error(`starting did not show the opening readings: ${t2.slice(0, 200)}`)
+  }
+  if (!/Copied in from whoever closed last/.test(t2)) {
+    throw new Error('the opening screen does not say it was copied in, not typed')
+  }
+  const openingTab = page.getByRole('tab', { name: 'Opening' })
+  if ((await openingTab.getAttribute('aria-selected')) !== 'true') {
+    throw new Error('the Opening tab is not the one selected on landing')
+  }
+
+  // Closing is a tab away on the very same page, not a different screen.
+  await page.getByRole('tab', { name: 'Closing' }).click()
+  await page.waitForTimeout(400)
+  if (!/The meter walk/.test(await body())) {
+    throw new Error('switching tabs did not reach the closing walk')
+  }
+  await openingTab.click()
+  await page.waitForTimeout(400)
+  if (!/Copied in from whoever closed last/.test(await body())) {
+    throw new Error('switching back did not return to the Opening tab')
+  }
+
+  await page.locator('button[aria-label="Back"]').click()
+  await page.waitForTimeout(700)
+
+  const t3 = await body()
+  if (!/Running/.test(t3)) throw new Error(`the shift is not running: ${t3}`)
+  if (!/started/.test(t3)) throw new Error('the shift does not say when it began')
+
+  // And the opening readings stay reachable afterward, not just the one
+  // time — the Meters step opens the same page on its Closing tab, and
+  // Opening is one tap away from there.
+  await page.locator('button', { hasText: /Meters (read|not read)/ }).first().click()
+  await page.waitForTimeout(600)
+  if (!/The meter walk/.test(await body())) {
+    throw new Error('the meters step does not land on the Closing tab')
+  }
+  await openingTab.click()
+  await page.waitForTimeout(400)
+  if (!/Copied in from whoever closed last/.test(await body())) {
+    throw new Error('the opening readings are not reachable again later')
+  }
+  await page.locator('button[aria-label="Back"]').click()
+  await page.waitForTimeout(500)
 })
 
 await check('counter: the walk round the forecourt', async () => {

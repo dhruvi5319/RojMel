@@ -146,15 +146,29 @@ Buttons around 60px, meter and cash boxes at 22px and up, and no grey lighter
 than `neutral-700` on the warm ground — `neutral-600` is 3.6:1 and fails.
 Nothing on it is `Card`-shaped office furniture: it is bands, steps and chips.
 
-**One reading per nozzle, taken at the start of the shift.** At 7am and again
-at 7pm somebody from the shift coming on walks the forecourt and writes down
-what every nozzle says. That one set of numbers is two things — the opening of
-the shift starting and the closing of the shift ending — so
-`record_meter_reading()` takes it once and writes both, and nobody is asked for
-a closing figure that has already been written down next door.
-`closing_reading` cannot be null and may not be below opening, so a shift that
-has only just started carries closing = opening: nothing sold yet.
-`v_shift_meters` is the walk, pumps first and then the CNG island.
+**One reading per nozzle, taken at the end of the shift, by whoever is
+finishing it.** A filler going off has to settle their own hissab and be
+gone — they cannot wait for whoever is coming on next to show up and walk
+the forecourt with them, so the reading is theirs to take, not the next
+shift's. `record_shift_closing()` writes only this shift's own closing;
+`start_shift()` copies that straight in as the next shift's opening the
+moment it is created, since nothing can have moved through an unstaffed
+pump. `closing_reading` cannot be null and may not be below opening, and a
+reading with nothing to inherit from (the pump's very first shift, or a
+nozzle with no history yet) starts life as closing = opening: nothing sold
+yet. `confirmed` tells inherited apart from actually closed — true only once
+a person has written a real number, never on the copy `start_shift()` made.
+Inherited is not the same as invisible, though: opening and closing are one
+page, a tab apart, not two screens — the instant a shift starts it lands on
+the Opening tab, a read-only review of what every meter opened at, so that
+figure is seen rather than sitting unlooked-at until somebody happens to
+flip to Closing. Nothing to type on Opening, nothing to wait for; the
+Closing tab is the editable walk, and whichever one a filler lands on, the
+other stays a tap away on the same page, not a different screen to navigate
+to. `v_shift_meters` is the walk, pumps first and then the CNG island.
+`record_meter_reading()` (0035) is the old one-walk-at-the-start version,
+still there and unbroken for anything that calls it directly, but nothing in
+the app does any more.
 
 **Who is on a shift is two facts, not one.** `staff.default_shift` is the
 roster the office keeps; `shift_fillers` is who actually worked a given shift,
@@ -239,16 +253,19 @@ makes that shift look short by exactly the amount written during it, so
 `attach_slip_to_shift()` falls back to the day's last shift rather than to
 nothing. `v_unattached_udhaar` still exists for slips written before this rule.
 
-**A filler answers for cash, and only cash.** The card machine and the UPI
-account are the pump's, not the person's, so `shift_collections` rows with a
-`staff_id` carry `cash_amount` alone — a check constraint says so. The other
-modes go on the shift's own row, the one with no filler against it, entered on
-the money log. Both rows are counted together. The cash itself is typed on the
-counter by the people who counted the notes, through `record_shift_cash()`,
-which refuses a name that was not on the shift and never touches the shift's
-own row; it was always allowed by the policies and for a long time no screen
-offered it, so the figure was typed in the office by somebody who had not
-handled the money.
+**A filler answers for cash, and only cash — but the counter still writes the
+shift's own card, UPI and BPCL.** The card machine and the UPI code are the
+pump's, not the person's, so `shift_collections` rows with a `staff_id` carry
+`cash_amount` alone — a check constraint says so; card, UPI and BPCL go on the
+shift's own row, the one with no filler against it. That row used to be the
+office's alone to fill in, later, off a statement — but whoever is actually
+swiping the card or showing the QR knows the shift's own total as it happens,
+and "what's owed" cannot subtract what it does not know about. So the counter
+writes it too, through the same `shift_collections` upsert the money log's own
+form already used — one row, whichever side gets there first, the other only
+ever confirms or corrects it. What a filler is answerable for stays cash and
+only cash: a shortfall in the card or UPI total is nobody's personal shortfall
+the way a cash box coming up short is.
 
 **The cash total is counted, not typed.** A filler does not arrive at a
 figure; they count what is in the box — so many 500s, so many 100s, down to

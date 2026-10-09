@@ -2,9 +2,8 @@ import { requireSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { businessDateAt, shiftAt } from '@/lib/shifts'
 import type {
-  CreditSale, FuelType, NozzleState, Shift, ShiftCashDenomination, ShiftCollection,
-  ShiftFiller,
-  ShiftMeter, Staff, Vehicle,
+  CreditSale, FuelRate, FuelType, NozzleState, Shift, ShiftCashDenomination,
+  ShiftCollection, ShiftFiller, ShiftMeter, Staff, Vehicle,
 } from '@/lib/database.types'
 import { CounterApp, type CounterCustomer, type ShiftDigest } from './CounterApp'
 
@@ -45,9 +44,13 @@ export default async function CounterPage({
   const wanted = asked.shift
   // Moving the device onto another shift is a navigation, which remounts the
   // screen and forgets which one was open — so where to land travels with it.
-  const opening = asked.view === 'meters' ? 'meters' : 'home'
+  // Opening and closing are the same page now, a tab apart — only which tab
+  // needs to survive that remount, so a freshly started shift still opens on
+  // its own readings and not back at the shift's plain home screen.
+  const opening = asked.view === 'opening' ? 'meters' : 'home'
+  const initialMeterTab = asked.view === 'opening' ? 'opening' : 'closing'
 
-  const [staffRes, nozzlesRes, fuelsRes, customersRes, vehiclesRes, shiftsRes] =
+  const [staffRes, nozzlesRes, fuelsRes, customersRes, vehiclesRes, shiftsRes, ratesRes] =
     await Promise.all([
       // No PIN: the device is shared, and a PIN sent to the browser to be
       // compared there is not a lock on anything.
@@ -68,6 +71,9 @@ export default async function CounterPage({
         .in('business_date', [yesterday, today])
         .order('business_date')
         .order('sort_order'),
+      // What a filler answers a customer who asks the price, without opening
+      // a slip or a meter box to find out.
+      supabase.from('v_fuel_rates').select('*').order('sort_order'),
     ])
 
   const shifts = (shiftsRes.data ?? []) as Shift[]
@@ -180,6 +186,7 @@ export default async function CounterPage({
       staff={(staffRes.data ?? []) as Staff[]}
       nozzles={(nozzlesRes.data ?? []) as NozzleState[]}
       fuels={(fuelsRes.data ?? []) as FuelType[]}
+      rates={(ratesRes.data ?? []) as FuelRate[]}
       customers={(customersRes.data ?? []) as CounterCustomer[]}
       vehicles={(vehiclesRes.data ?? []) as Vehicle[]}
       shifts={digests}
@@ -187,6 +194,7 @@ export default async function CounterPage({
       meters={meters}
       now={now.toISOString()}
       opening={opening}
+      initialMeterTab={initialMeterTab}
       fillers={current ? fillers.filter((f) => f.shift_id === current.id) : []}
       slips={current ? slips.filter((s) => s.shift_id === current.id) : []}
       collections={collections}
