@@ -202,6 +202,91 @@ select assert_raises($$ select record_shift_closing(
       (select id from nozzles where name = 'D1'), 'reading', 100))) $$,
   'a closing reading below the opening');
 
+-- --------------------- the pump that did not start at zero -----------------
+-- A nozzle with nothing to inherit from used to mean exactly one thing: a
+-- physically new nozzle, reading zero. That is wrong for a fifteen-year-old
+-- pump going digital mid-life, with a real number already standing on the
+-- dial — and the owner is not tending to be at the pump when a shift
+-- starts, so this is typed on the counter, by whoever is actually there,
+-- not set up in advance. The nozzle itself is still owner-write, same
+-- boundary as every other equipment row, so only its creation borrows the
+-- owner's identity.
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+do $do$
+declare v_tank uuid; v_fuel uuid; v_far date := current_date + 101;
+begin
+  select tank_id, fuel_type_id into v_tank, v_fuel from nozzles where name = 'D1';
+  insert into nozzles (station_id, tank_id, fuel_type_id, name, sort_order)
+  values ('11111111-1111-1111-1111-111111111111', v_tank, v_fuel, 'D-fresh', 99);
+end
+$do$;
+
+set local request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+-- Starting the shift finds nothing to inherit, same as always — this
+-- nozzle's first-ever shift opens on nothing until somebody types it.
+do $do$ declare v_far date := current_date + 101; begin
+  perform start_shift('Day', v_far);
+end $do$;
+select assert_eq((select opening_reading from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date + 101 and name = 'Day')
+                     and nozzle_id = (select id from nozzles where name = 'D-fresh')),
+                 null::numeric, 'a brand new nozzle still opens on nothing, same as always');
+
+-- Whoever is at the pump types what the dial actually shows.
+select record_shift_opening(
+    (select id from shifts where business_date = current_date + 101 and name = 'Day'),
+    jsonb_build_array(jsonb_build_object('nozzle_id',
+      (select id from nozzles where name = 'D-fresh'), 'reading', 58213.456)),
+    '[]'::jsonb);
+select assert_eq((select opening_reading from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date + 101 and name = 'Day')
+                     and nozzle_id = (select id from nozzles where name = 'D-fresh')),
+                 58213.456::numeric, 'the counter''s typed reading becomes the true opening');
+
+-- Typing it again, with a different number, changes nothing — this can
+-- never overwrite a reading that is already there.
+select record_shift_opening(
+    (select id from shifts where business_date = current_date + 101 and name = 'Day'),
+    jsonb_build_array(jsonb_build_object('nozzle_id',
+      (select id from nozzles where name = 'D-fresh'), 'reading', 99999)),
+    '[]'::jsonb);
+select assert_eq((select opening_reading from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date + 101 and name = 'Day')
+                     and nozzle_id = (select id from nozzles where name = 'D-fresh')),
+                 58213.456::numeric, 'and a second attempt cannot overwrite it');
+
+-- The shift closes as normal, and sells what it actually sold — not zero —
+-- on its very first reading, because the true opening was already there.
+select record_shift_closing(
+    (select id from shifts where business_date = current_date + 101 and name = 'Day'),
+    jsonb_build_array(jsonb_build_object('nozzle_id',
+      (select id from nozzles where name = 'D-fresh'), 'reading', 58240)));
+select assert_eq((select litres from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date + 101 and name = 'Day')
+                     and nozzle_id = (select id from nozzles where name = 'D-fresh')),
+                 26.544::numeric,
+                 'and sells what it actually sold, not zero, on its very first shift');
+
+-- On an ordinary, already-inherited meter, record_shift_opening() has
+-- nothing to do — it only ever fills a gap, never corrects a real reading.
+select record_shift_opening(
+    (select id from shifts where business_date = current_date + 100 and name = 'Night'),
+    jsonb_build_array(jsonb_build_object('nozzle_id',
+      (select id from nozzles where name = 'D1'), 'reading', 1)),
+    '[]'::jsonb);
+select assert_eq((select opening_reading from nozzle_readings
+                   where shift_id = (select id from shifts
+                                      where business_date = current_date + 100 and name = 'Night')
+                     and nozzle_id = (select id from nozzles where name = 'D1')),
+                 90000.000::numeric,
+                 'and leaves an already-inherited opening alone');
+
 -- ------------------------------------------------ two shifts, day and night --
 -- The pump runs two, and a slip belongs to one of them: udhaar not on a shift
 -- makes that shift look short by exactly the amount written during it.
@@ -290,6 +375,40 @@ insert into bank_deposits (bank_name, amount) values ('SBI', 1000);
 insert into fuel_prices (fuel_type_id, sale_rate) values ('f1111111-0000-0000-0000-000000000001', 97.100);
 select assert_eq(current_rate('f1111111-0000-0000-0000-000000000001'), 97.100::numeric, 'manager can move the rate');
 
+-- -------------------------- a cash sale is not udhaar, and never owed -------
+-- Paid in full on the spot: the customer's balance must not move by a single
+-- rupee, because cash_sales is read by nothing that balance, ageing or the
+-- day's arithmetic reads — the cash is already inside meter sales and the
+-- cash counted, exactly like any other cash sale. Captured before and after
+-- in the same block, not against a hardcoded figure — other tests ahead of
+-- this one in the same transaction already move this customer's balance.
+do $do$
+declare v_before numeric; v_after numeric; v_age_before numeric; v_age_after numeric;
+begin
+  select balance into v_before from v_customer_balances
+   where customer_id = 'c1111111-0000-0000-0000-000000000001';
+  select within_month into v_age_before from v_customer_ageing
+   where customer_id = 'c1111111-0000-0000-0000-000000000001';
+
+  insert into cash_sales (customer_id, fuel_type_id, quantity, sale_rate)
+    values ('c1111111-0000-0000-0000-000000000001',
+            'f1111111-0000-0000-0000-000000000002', 20, 89.200);
+
+  select balance into v_after from v_customer_balances
+   where customer_id = 'c1111111-0000-0000-0000-000000000001';
+  select within_month into v_age_after from v_customer_ageing
+   where customer_id = 'c1111111-0000-0000-0000-000000000001';
+
+  perform assert_eq(v_after, v_before, 'a cash sale never moves the balance');
+  perform assert_eq(v_age_after, v_age_before, 'nor the ageing it is read from');
+end
+$do$;
+
+select assert_eq((select amount from cash_sales
+                   where customer_id = 'c1111111-0000-0000-0000-000000000001'
+                     and quantity = 20),
+                 1784.00::numeric, 'but the sale itself is recorded, quantity times rate');
+
 -- Tenant isolation.
 select assert_eq((select count(*) from customers where name = 'Rival Roadlines'), 0::bigint, 'other pump is invisible');
 rollback;
@@ -317,6 +436,15 @@ insert into credit_sales (business_date, customer_id, fuel_type_id, quantity, sa
           'f1111111-0000-0000-0000-000000000002', 50, 89.200, 'S-002');
 select assert_eq((select count(*) from credit_sales), 2::bigint, 'counter can write a slip');
 select assert_raises($$ insert into expenses (category, amount) values ('x', 1) $$, 'counter writing an expense');
+
+-- The same filler can write a sale that is paid in full on the spot, not
+-- udhaar — same RLS shape as the slip above, a table of its own underneath.
+insert into cash_sales (business_date, customer_id, fuel_type_id, quantity, sale_rate)
+  values (pump_day(), 'c1111111-0000-0000-0000-000000000001',
+          'f1111111-0000-0000-0000-000000000001', 15, 96.500);
+select assert_eq((select count(*) from cash_sales), 1::bigint, 'counter can write a cash sale too');
+select assert_eq((select shift_id from cash_sales limit 1) is not null, true,
+                 'and it names its shift, the same trigger as a slip');
 
 -- The card machine and the UPI QR are handled at the nozzle, by whoever is
 -- serving, so the counter writes this shift's own figure for them too — not
@@ -1325,4 +1453,79 @@ select assert_eq((select covering from shift_fillers sf
                                           where business_date = '2024-01-07' and name = 'Night')
                       and sf.staff_id = '11111111-0000-0000-0000-0000000000e2'),
                  true, 'the night group standing on Sunday night anyway is covering, correctly');
+rollback;
+
+-- ============================================== THE SUPER ADMIN'S PUMPS ====
+-- The one account outside every station: makes a pump, and can come back to
+-- it afterward — edit what was typed in, hand back a lost password, retire
+-- it without losing a single row underneath. auth_station_id() is the one
+-- place "is this pump retired" has to be answered, because almost every
+-- policy in the app asks it.
+begin;
+
+-- Both inserts need the seeding connection's own role: auth.users has no
+-- grant for authenticated at all, and platform_admins has row level security
+-- turned on with no policy on it anywhere — deliberately, since nobody is
+-- meant to read it through the API, not even a super admin.
+insert into auth.users (id, email) values
+  ('99999999-0000-0000-0000-00000000a001', 'super-test@pump.in'),
+  ('99999999-0000-0000-0000-00000000a002', 'owner-test@pump.in');
+insert into platform_admins (user_id, full_name)
+  values ('99999999-0000-0000-0000-00000000a001', 'Test Super Admin');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '99999999-0000-0000-0000-00000000a001';
+
+select assert_eq(is_platform_admin(), true, 'the super admin is recognised');
+
+select admin_create_pump(
+  '99999999-0000-0000-0000-00000000a002', 'Test Owner', 'Admin Test Pump',
+  null, null, 'Surat', 'Gujarat', null, null, null, 'ATP');
+
+select assert_eq((select count(*) from admin_list_pumps()
+                   where name = 'Admin Test Pump' and is_active = true),
+                 1::bigint, 'the new pump lists itself, active');
+
+-- Carried in a temp table, not re-queried later: admin_list_pumps() only
+-- answers a super admin, and the next steps test it as the owner instead.
+create temporary table tmp_admin_test_station as
+  select station_id from admin_list_pumps() where name = 'Admin Test Pump';
+
+select admin_update_pump(
+  (select station_id from tmp_admin_test_station),
+  'Admin Test Pump', null, null, 'Vadodara');
+select assert_eq((select city from admin_list_pumps() where name = 'Admin Test Pump'),
+                 'Vadodara', 'editing afterward changes what was typed in');
+
+select assert_eq((select count(*) from admin_pump_accounts(
+                    (select station_id from tmp_admin_test_station))
+                   where role = 'owner' and email = 'owner-test@pump.in'),
+                 1::bigint, 'the owner shows up by name and email, not just a count');
+
+select assert_eq(admin_account_exists('99999999-0000-0000-0000-00000000a002'), true,
+                 'a real account at a pump is recognised');
+select assert_eq(admin_account_exists('99999999-0000-0000-0000-00000000a999'), false,
+                 'a made-up id is not');
+
+-- Retiring it is the super admin's own act, but what it actually does is cut
+-- off auth_station_id() — tested as the owner themselves, not the admin.
+select admin_set_pump_active((select station_id from tmp_admin_test_station), false);
+select assert_eq((select is_active from admin_list_pumps() where name = 'Admin Test Pump'),
+                 false, 'the pump itself shows retired');
+
+set local request.jwt.claim.sub = '99999999-0000-0000-0000-00000000a002';
+select assert_eq(auth_station_id(), null::uuid,
+                 'a retired pump''s own owner loses auth_station_id — this is what actually locks them out');
+
+set local request.jwt.claim.sub = '99999999-0000-0000-0000-00000000a001';
+select admin_set_pump_active((select station_id from tmp_admin_test_station), true);
+
+set local request.jwt.claim.sub = '99999999-0000-0000-0000-00000000a002';
+select assert_eq(auth_station_id(), (select station_id from tmp_admin_test_station),
+                 'undoing it hands the station back');
+
+-- Nobody else gets any of this.
+select assert_raises($$ select admin_list_pumps() $$, 'an owner cannot list every pump');
+select assert_raises($$ select admin_set_pump_active(
+    (select station_id from tmp_admin_test_station), false) $$, 'nor retire one');
 rollback;

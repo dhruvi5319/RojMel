@@ -20,13 +20,33 @@ Real software for a family business, not a demo — see README.md.
 litre that leaves the pump. A credit sale is the slice of that which went out on
 udhaar, so `cash expected = meter sales − credit sales`. Never add the two.
 
+**A named customer paying cash is still worth knowing, but it is not udhaar.**
+The pump's own instinct is to track every regular customer — a transporter who
+always pays cash on the spot is still one of "our customers," and "what has
+this customer taken from us" should have one honest answer regardless of how
+it was paid. But recording it in `credit_sales` would feed it straight into
+the rule above: the cash is already in the cash box, so subtracting it out
+again as if it were owed would be the exact double-count that rule exists to
+prevent. `cash_sales` is the second table that rule demands — same shape as
+`credit_sales`, written from the same slip form with a "Paid now" choice
+beside "On udhaar," but read by nothing that balance, ageing, billing or the
+day's arithmetic reads. It exists only so a customer's page can show
+`everythingTaken` — udhaar and paid, side by side — separately from the
+ledger, which only ever shows what still affects the balance.
+
 **Three fuels, two units.** `fuel_types.unit` is `L` or `kg`. Petrol and diesel
 live in tanks with dips and arrive by tanker; CNG comes on its own truck and is
 weighed in kilograms — the same unit the dispensers sell in, so it needs no
 conversion and has no tank, no dip, no decanting. Its sales still fold into
 `day_summary`, because the pump's day must tally as one day whatever the fuel
 was measured in. CNG lives at `/cng` under Stock; its readings are entered with
-the shift, beside the nozzles, and a truck may come twice in a day.
+the shift, beside the nozzles, and a truck may come twice in a day. An udhaar
+slip can be written for it exactly like petrol or diesel — the counter's fuel
+picker reads off `v_fuel_rates`, which prices every fuel, not off the nozzle
+list, which structurally never could: a nozzle is petrol or diesel by
+definition, so a picker built from nozzles alone silently had no way to offer
+CNG at all. The quantity box relabels to kilograms and drops the nozzle field
+once CNG is picked, since neither litres nor a nozzle means anything for it.
 
 **The money log is the book.** `/moneylog` puts the two halves of the manager's
 page side by side, per shift: what the meters say left the pump, fuel by fuel,
@@ -154,10 +174,28 @@ shift's. `record_shift_closing()` writes only this shift's own closing;
 `start_shift()` copies that straight in as the next shift's opening the
 moment it is created, since nothing can have moved through an unstaffed
 pump. `closing_reading` cannot be null and may not be below opening, and a
-reading with nothing to inherit from (the pump's very first shift, or a
-nozzle with no history yet) starts life as closing = opening: nothing sold
-yet. `confirmed` tells inherited apart from actually closed — true only once
-a person has written a real number, never on the copy `start_shift()` made.
+reading with nothing to inherit from — a nozzle just installed, or the
+pump's very first shift on it with no baseline typed either — starts life
+as closing = opening: nothing sold yet. `confirmed` tells inherited apart
+from actually closed — true only once a person has written a real number,
+never on the copy `start_shift()` made.
+
+**A pump that did not start at zero gets to say so, once — on the counter,
+not in a form filled in beforehand.** Most nozzles inherit their opening
+from whatever the shift before them closed at, but the very first shift a
+nozzle is ever read in this app has nothing to inherit — and for a pump
+fifteen years into trading before anybody typed anything in here, that is
+not the same as actually reading zero. The owner is not tending to be at
+the pump when any shift starts, so this is not equipment to set up in
+advance: a meter showing "Not set yet" on the Opening tab becomes
+editable right there, for whoever is actually standing at the pump when
+the first-ever shift on it begins. `record_shift_opening()` is the one
+door in — it only ever adds a row that is not there yet (`on conflict do
+nothing`), so it can never overwrite a real inherited reading, and once
+that row exists `record_shift_closing()`'s own upsert does the rest
+exactly as always: it updates `closing_reading` and leaves the typed
+opening alone. Left untyped, nothing changes — a nozzle nobody has read
+yet still opens on nothing, same as always.
 Inherited is not the same as invisible, though: opening and closing are one
 page, a tab apart, not two screens — the instant a shift starts it lands on
 the Opening tab, a read-only review of what every meter opened at, so that
@@ -218,6 +256,23 @@ the audit trail — and `getSession()` refuses an inactive profile, so the login
 stops working immediately. Everyone with an account changes their own password
 on `/account`, which checks the current one first.
 
+**A pump is retired, not deleted.** Every table in this app cascades off
+`stations.id`, so a real delete would wipe a pump's entire history — the one
+thing the app exists to keep. `stations.is_active` is the same soft-delete
+pattern as staff and office accounts, just one level up, and
+`auth_station_id()` is the one place it has to be taught: it stops returning
+a retired station the moment `is_active` is false, which is what actually
+cuts off every login at it, through the same `getSession()` null-check that
+already handles a removed account — nothing else needed to change. The super
+admin who creates a pump can also come back to it: `admin_update_pump()` edits
+what `admin_create_pump()` typed in, `admin_set_pump_active()` retires and
+restores it, and a lost password at any pump is handed back the same way
+`resetAccountPassword()` already does it for an owner's own station, just
+scoped to any station instead of one. A platform admin has no `profiles` row,
+so `admin_pump_accounts()` and `admin_account_exists()` exist only because no
+RLS policy on `profiles` or `auth.users` would otherwise let one read an
+account's name, email or existence at all.
+
 **The service key stays on the server.** Creating a login is Supabase's admin
 API, so `SUPABASE_SERVICE_ROLE_KEY` is read only inside `src/lib/supabase/admin.ts`
 and never given a `NEXT_PUBLIC_` prefix. It bypasses every RLS policy, so every
@@ -252,6 +307,17 @@ day has not got to it yet — there is no blank option. A slip left off a shift
 makes that shift look short by exactly the amount written during it, so
 `attach_slip_to_shift()` falls back to the day's last shift rather than to
 nothing. `v_unattached_udhaar` still exists for slips written before this rule.
+
+**Customers are office-written, except the one door the counter gets for a
+lorry nobody has met yet.** `customers` stays owner/manager-write, same
+boundary as equipment — but a slip has to go on somebody now, and the filler
+cannot wait for the office to open Customers first. `counter_walkin_customer()`
+is that one door: it takes a typed name, not a form, flags the row
+`is_walkin`, and reuses it by name rather than erroring on the customer's own
+`unique (station_id, name)` if the same name is typed again — a filler has no
+idea what a unique constraint is. The office sees every one of these flagged,
+on `/customers` and `/credit` alike, never silently mixed into the regular
+list.
 
 **A filler answers for cash, and only cash — but the counter still writes the
 shift's own card, UPI and BPCL.** The card machine and the UPI code are the

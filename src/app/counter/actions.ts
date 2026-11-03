@@ -99,6 +99,31 @@ export async function saveMeterReading(
 }
 
 /**
+ * The true opening, typed on the spot, for a meter with nothing to inherit
+ * — a brand new nozzle, or the pump's very first shift on it. Whoever is
+ * actually standing there writes what the dial shows right now; nothing
+ * about this comes from the office, because the office is not at the pump
+ * when a shift starts. record_shift_opening() only ever adds a row that is
+ * not there yet, so it can never overwrite a real inherited reading.
+ */
+export async function saveShiftOpening(
+  shiftId: string,
+  nozzles: { nozzle_id: string; reading: string }[],
+  cng: { dispenser_id: string; reading: string }[],
+): Promise<CounterResult> {
+  const supabase = await createClient()
+  const { error } = await supabase.rpc('record_shift_opening', {
+    p_shift_id: shiftId,
+    p_nozzles: nozzles.filter((n) => n.reading.trim() !== ''),
+    p_cng: cng.filter((c) => c.reading.trim() !== ''),
+  })
+  if (error) return { error: error.message }
+  revalidatePath('/counter')
+  revalidatePath('/shifts')
+  return { ok: true }
+}
+
+/**
  * The cash each filler handed over, counted note by note where it was
  * counted.
  *
@@ -156,9 +181,34 @@ export async function saveShiftPayments(
   return { ok: true }
 }
 
+/**
+ * A customer_id to write the slip against — the one picked from the list, or,
+ * for a lorry nobody has added yet, one made on the spot from a typed name.
+ * counter_walkin_customer() flags it is_walkin and reuses the same row if
+ * the name comes round again, rather than erroring on the customer's own
+ * unique (station_id, name) constraint.
+ */
+async function resolveCustomerId(
+  customerId: string | null,
+  walkinName: string | null,
+): Promise<{ id?: string; error?: string }> {
+  if (customerId) return { id: customerId }
+  if (!walkinName?.trim()) return { error: 'Who is taking it?' }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('counter_walkin_customer', {
+    p_name: walkinName.trim(),
+  })
+  if (error) return { error: error.message }
+  if (!data) return { error: 'Could not write that name down.' }
+  return { id: data as string }
+}
+
 /** An udhaar slip written at the pump, by whoever is on the nozzle. */
 export async function counterSlip(input: {
-  customer_id: string
+  customer_id: string | null
+  /** a name typed on the spot, for a customer not yet in the list */
+  walkin_name: string | null
   vehicle_id: string | null
   fuel_type_id: string
   nozzle_id: string | null
@@ -177,8 +227,21 @@ export async function counterSlip(input: {
   if (!(input.sale_rate > 0)) return { error: 'No rate set for this fuel.' }
   if (!input.shift_id) return { error: 'Start the shift before writing a slip.' }
 
+  const resolved = await resolveCustomerId(input.customer_id, input.walkin_name)
+  if (resolved.error) return { error: resolved.error }
+
   const { error } = await supabase.from('credit_sales').insert({
-    ...input,
+    customer_id: resolved.id,
+    vehicle_id: input.vehicle_id,
+    fuel_type_id: input.fuel_type_id,
+    nozzle_id: input.nozzle_id,
+    staff_id: input.staff_id,
+    quantity: input.quantity,
+    sale_rate: input.sale_rate,
+    slip_number: input.slip_number,
+    driver_name: input.driver_name,
+    business_date: input.business_date,
+    shift_id: input.shift_id,
     vehicle_number: await vehicleNumber(input.vehicle_id),
   })
 
@@ -186,6 +249,7 @@ export async function counterSlip(input: {
 
   revalidatePath('/counter')
   revalidatePath('/credit')
+  revalidatePath('/customers')
   revalidatePath('/')
   return { ok: true }
 }
@@ -201,7 +265,9 @@ export async function counterSlip(input: {
 export async function updateSlip(
   id: string,
   patch: {
-    customer_id: string
+    customer_id: string | null
+    /** a name typed on the spot, for a customer not yet in the list */
+    walkin_name: string | null
     vehicle_id: string | null
     fuel_type_id: string
     quantity: number
@@ -215,9 +281,22 @@ export async function updateSlip(
 
   if (!(patch.quantity > 0)) return { error: 'Enter how much fuel went out.' }
 
+  const resolved = await resolveCustomerId(patch.customer_id, patch.walkin_name)
+  if (resolved.error) return { error: resolved.error }
+
   const result = await supabase
     .from('credit_sales')
-    .update({ ...patch, vehicle_number: await vehicleNumber(patch.vehicle_id) })
+    .update({
+      customer_id: resolved.id,
+      vehicle_id: patch.vehicle_id,
+      fuel_type_id: patch.fuel_type_id,
+      quantity: patch.quantity,
+      sale_rate: patch.sale_rate,
+      slip_number: patch.slip_number,
+      driver_name: patch.driver_name,
+      staff_id: patch.staff_id,
+      vehicle_number: await vehicleNumber(patch.vehicle_id),
+    })
     .eq('id', id)
     .select('id')
 
@@ -226,6 +305,103 @@ export async function updateSlip(
 
   revalidatePath('/counter')
   revalidatePath('/credit')
+  return { ok: true }
+}
+
+/**
+ * A named customer's purchase, paid in full on the spot — not udhaar.
+ * Written the same way as an udhaar slip, into a table of its own, because
+ * cash_sales must never be read by the balance, ageing or day arithmetic
+ * that credit_sales feeds: the cash here is already in the cash box.
+ */
+export async function counterCashSale(input: {
+  customer_id: string | null
+  /** a name typed on the spot, for a customer not yet in the list */
+  walkin_name: string | null
+  vehicle_id: string | null
+  fuel_type_id: string
+  nozzle_id: string | null
+  staff_id: string | null
+  quantity: number
+  sale_rate: number
+  slip_number: string | null
+  driver_name: string | null
+  business_date: string
+  shift_id: string
+}): Promise<CounterResult> {
+  const supabase = await createClient()
+
+  if (!(input.quantity > 0)) return { error: 'Enter how much fuel went out.' }
+  if (!(input.sale_rate > 0)) return { error: 'No rate set for this fuel.' }
+  if (!input.shift_id) return { error: 'Start the shift before writing a slip.' }
+
+  const resolved = await resolveCustomerId(input.customer_id, input.walkin_name)
+  if (resolved.error) return { error: resolved.error }
+
+  const { error } = await supabase.from('cash_sales').insert({
+    customer_id: resolved.id,
+    vehicle_id: input.vehicle_id,
+    fuel_type_id: input.fuel_type_id,
+    nozzle_id: input.nozzle_id,
+    staff_id: input.staff_id,
+    quantity: input.quantity,
+    sale_rate: input.sale_rate,
+    slip_number: input.slip_number,
+    driver_name: input.driver_name,
+    business_date: input.business_date,
+    shift_id: input.shift_id,
+    vehicle_number: await vehicleNumber(input.vehicle_id),
+  })
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/counter')
+  revalidatePath('/customers')
+  return { ok: true }
+}
+
+/** Putting right a cash sale written wrong — same rule as an udhaar slip. */
+export async function updateCashSale(
+  id: string,
+  patch: {
+    customer_id: string | null
+    walkin_name: string | null
+    vehicle_id: string | null
+    fuel_type_id: string
+    quantity: number
+    sale_rate: number
+    slip_number: string | null
+    driver_name: string | null
+    staff_id: string | null
+  },
+): Promise<CounterResult> {
+  const supabase = await createClient()
+
+  if (!(patch.quantity > 0)) return { error: 'Enter how much fuel went out.' }
+
+  const resolved = await resolveCustomerId(patch.customer_id, patch.walkin_name)
+  if (resolved.error) return { error: resolved.error }
+
+  const result = await supabase
+    .from('cash_sales')
+    .update({
+      customer_id: resolved.id,
+      vehicle_id: patch.vehicle_id,
+      fuel_type_id: patch.fuel_type_id,
+      quantity: patch.quantity,
+      sale_rate: patch.sale_rate,
+      slip_number: patch.slip_number,
+      driver_name: patch.driver_name,
+      staff_id: patch.staff_id,
+      vehicle_number: await vehicleNumber(patch.vehicle_id),
+    })
+    .eq('id', id)
+    .select('id')
+
+  const state = changed(result, 'this sale')
+  if (state.error) return state
+
+  revalidatePath('/counter')
   return { ok: true }
 }
 

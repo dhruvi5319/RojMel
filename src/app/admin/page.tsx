@@ -6,23 +6,18 @@ import { canCreateLogins } from '@/lib/supabase/admin'
 import { getT } from '@/lib/i18n/server'
 import { formatDate } from '@/lib/format'
 import {
-  Alert, Badge, Card, CardHeader, Empty, TableWrap, Td, Th, rowClass,
+  Alert, Badge, Card, CardHeader, Empty, TableWrap, Td, Th,
 } from '@/components/ui'
 import { Collapsible } from '@/components/Collapsible'
+import { EditableRow } from '@/components/EditableRow'
 import { SignOutButton } from '@/components/SignOutButton'
 import { PumpForm } from './PumpForm'
+import {
+  EditPumpForm, PumpAccountList, PumpActive,
+  type AdminAccount, type AdminPump,
+} from './PumpAdminForms'
 
 export const dynamic = 'force-dynamic'
-
-interface Pump {
-  station_id: string
-  name: string
-  city: string | null
-  created_at: string
-  owners: number
-  managers: number
-  has_counter: boolean
-}
 
 /**
  * The super admin's whole job: make a pump, and give it an owner who can then
@@ -38,7 +33,19 @@ export default async function AdminPage() {
   const supabase = await createClient()
 
   const { data } = await supabase.rpc('admin_list_pumps')
-  const pumps = (data ?? []) as Pump[]
+  const pumps = (data ?? []) as AdminPump[]
+
+  // Who can sign into each pump, fetched alongside it — the super admin's
+  // list is never long enough that this is worth lazy-loading per row.
+  const accountsByStation = new Map<string, AdminAccount[]>()
+  if (pumps.length > 0) {
+    const results = await Promise.all(
+      pumps.map((p) => supabase.rpc('admin_pump_accounts', { p_station_id: p.station_id })),
+    )
+    pumps.forEach((p, i) => {
+      accountsByStation.set(p.station_id, (results[i].data ?? []) as AdminAccount[])
+    })
+  }
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
@@ -83,30 +90,61 @@ export default async function AdminPage() {
                 <Th>{t('acc.ownersManagers')}</Th>
                 <Th>{t('role.counter')}</Th>
                 <Th>{t('common.date')}</Th>
+                <Th />
               </tr>
             </thead>
             <tbody>
-              {pumps.map((p) => (
-                <tr key={p.station_id} className={rowClass}>
-                  <Td>
-                    <span className="font-semibold">{p.name}</span>
-                    {p.city ? (
-                      <div className="text-sm text-neutral-600">{p.city}</div>
-                    ) : null}
-                  </Td>
-                  <Td className="tabular text-neutral-600">
-                    {Number(p.owners)} · {Number(p.managers)}
-                  </Td>
-                  <Td>
-                    <Badge tone={p.has_counter ? 'ok' : 'neutral'}>
-                      {p.has_counter ? t('acc.counterSet') : t('acc.counterMissing')}
-                    </Badge>
-                  </Td>
-                  <Td className="whitespace-nowrap text-neutral-600">
-                    {formatDate(p.created_at)}
-                  </Td>
-                </tr>
-              ))}
+              {pumps.map((p) => {
+                const cells = (
+                  <>
+                    <Td>
+                      <span className="font-semibold">{p.name}</span>
+                      {p.city ? (
+                        <div className="text-sm text-neutral-600">{p.city}</div>
+                      ) : null}
+                    </Td>
+                    <Td className="tabular text-neutral-600">
+                      {Number(p.owners)} · {Number(p.managers)}
+                    </Td>
+                    <Td>
+                      <Badge tone={p.has_counter ? 'ok' : 'neutral'}>
+                        {p.has_counter ? t('acc.counterSet') : t('acc.counterMissing')}
+                      </Badge>
+                    </Td>
+                    <Td className="whitespace-nowrap text-neutral-600">
+                      {p.is_active ? formatDate(p.created_at) : t('acc.removed')}
+                    </Td>
+                  </>
+                )
+                return (
+                  <EditableRow
+                    key={p.station_id}
+                    span={5}
+                    label={`Edit ${p.name}`}
+                    cells={cells}
+                    actions={<PumpActive stationId={p.station_id} active={p.is_active} />}
+                    form={
+                      <div className="flex flex-col gap-5">
+                        <div>
+                          <div className="mb-2 text-[13px] font-semibold text-neutral-700">
+                            {t('acc.pumpDetails')}
+                          </div>
+                          <EditPumpForm pump={p} />
+                        </div>
+                        <div>
+                          <div className="mb-2 text-[13px] font-semibold text-neutral-700">
+                            {t('acc.pumpAccounts')}
+                          </div>
+                          <PumpAccountList accounts={accountsByStation.get(p.station_id) ?? []} />
+                        </div>
+                        <p className="text-[12.5px] text-neutral-600">
+                          {t('acc.retirePumpHint')}
+                        </p>
+                      </div>
+                    }
+                  />
+                )
+              })}
             </tbody>
           </TableWrap>
         )}

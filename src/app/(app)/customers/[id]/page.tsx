@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getT } from '@/lib/i18n/server'
 import { formatDate, money, quantity } from '@/lib/format'
 import type {
-  CreditSale, Customer, CustomerBalance, Invoice, Payment, Vehicle,
+  CashSale, CreditSale, Customer, CustomerBalance, Invoice, Payment, Vehicle,
 } from '@/lib/database.types'
 import {
   Alert, Badge, Card, CardHeader, Empty, LinkButton, PageHeader, Stat,
@@ -57,7 +57,7 @@ export default async function CustomerPage({
 
   if (!customer) notFound()
 
-  const [balanceRes, vehiclesRes, salesRes, paymentsRes, invoicesRes] =
+  const [balanceRes, vehiclesRes, salesRes, cashSalesRes, paymentsRes, invoicesRes] =
     await Promise.all([
       supabase
         .from('v_customer_balances')
@@ -72,7 +72,15 @@ export default async function CustomerPage({
         .order('vehicle_number'),
       supabase
         .from('credit_sales')
-        .select('*')
+        .select('*, fuel_types(name, unit)')
+        .eq('customer_id', id)
+        .order('business_date', { ascending: false })
+        .limit(200),
+      // Paid in full on the spot — not udhaar, never owed, never billed.
+      // Fetched only to show the customer's whole history in one place.
+      supabase
+        .from('cash_sales')
+        .select('*, fuel_types(name, unit)')
         .eq('customer_id', id)
         .order('business_date', { ascending: false })
         .limit(200),
@@ -92,7 +100,10 @@ export default async function CustomerPage({
 
   const balance = balanceRes.data
   const vehicles = (vehiclesRes.data ?? []) as Vehicle[]
-  const sales = (salesRes.data ?? []) as CreditSale[]
+  const sales = (salesRes.data ?? []) as unknown as
+    (CreditSale & { fuel_types: { name: string; unit: 'L' | 'kg' } | null })[]
+  const cashSales = (cashSalesRes.data ?? []) as unknown as
+    (CashSale & { fuel_types: { name: string; unit: 'L' | 'kg' } | null })[]
   const payments = (paymentsRes.data ?? []) as Payment[]
   const invoices = (invoicesRes.data ?? []) as Invoice[]
 
@@ -127,6 +138,31 @@ export default async function CustomerPage({
 
   const over =
     customer.credit_limit > 0 && (balance?.balance ?? 0) > customer.credit_limit
+
+  // Everything this customer has ever taken, udhaar or paid — not the
+  // ledger above, which only carries what actually affects the balance.
+  const history = [
+    ...sales.map((s) => ({
+      id: s.id,
+      mode: 'udhaar' as const,
+      business_date: s.business_date,
+      fuel_name: s.fuel_types?.name ?? null,
+      unit: s.fuel_types?.unit ?? 'L',
+      quantity: s.quantity,
+      vehicle_number: s.vehicle_number,
+      amount: s.amount,
+    })),
+    ...cashSales.map((s) => ({
+      id: s.id,
+      mode: 'cash' as const,
+      business_date: s.business_date,
+      fuel_name: s.fuel_types?.name ?? null,
+      unit: s.fuel_types?.unit ?? 'L',
+      quantity: s.quantity,
+      vehicle_number: s.vehicle_number,
+      amount: s.amount,
+    })),
+  ].sort((a, b) => (a.business_date < b.business_date ? 1 : -1))
 
   return (
     <>
@@ -331,6 +367,55 @@ export default async function CustomerPage({
                     </Td>
                     <Td className="tabular text-right font-semibold">
                       {money(row.running)}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </TableWrap>
+          )}
+        </Card>
+      </div>
+
+      {/* --------------------------------------------- everything taken -- */}
+      {/* Not the ledger — a cash sale owes nothing and never touches the
+          balance above, but this customer still took it from the pump, and
+          "what has this customer ever taken from us" should have one honest
+          answer regardless of how it was paid. */}
+      <div className="mt-6">
+        <Card>
+          <CardHeader title={t('cust.everythingTaken')} subtitle={t('cust.everythingTakenHint')} />
+          {history.length === 0 ? (
+            <Empty>{t('common.none')}</Empty>
+          ) : (
+            <TableWrap>
+              <thead>
+                <tr>
+                  <Th>{t('common.date')}</Th>
+                  <Th>{t('common.fuel')}</Th>
+                  <Th className="text-right">{t('common.quantity')}</Th>
+                  <Th>{t('credit.vehicle')}</Th>
+                  <Th>{t('counter.howPaid')}</Th>
+                  <Th className="text-right">{t('common.amount')}</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((row) => (
+                  <tr key={`${row.mode}-${row.id}`}>
+                    <Td className="whitespace-nowrap">{formatDate(row.business_date)}</Td>
+                    <Td>{row.fuel_name ?? '—'}</Td>
+                    <Td className="tabular text-right">
+                      {quantity(row.quantity, row.unit)}
+                    </Td>
+                    <Td className="tabular text-neutral-600">
+                      {row.vehicle_number ?? '—'}
+                    </Td>
+                    <Td>
+                      <Badge tone={row.mode === 'cash' ? 'ok' : 'accent'}>
+                        {row.mode === 'cash' ? t('counter.paidNow') : t('counter.onUdhaarMode')}
+                      </Badge>
+                    </Td>
+                    <Td className="tabular text-right font-semibold">
+                      {money(row.amount)}
                     </Td>
                   </tr>
                 ))}

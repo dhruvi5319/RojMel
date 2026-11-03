@@ -121,6 +121,10 @@ export const en = {
   'acc.ownersManagers': 'owners · managers',
   'acc.counterSet': 'Counter device set up',
   'acc.counterMissing': 'No counter device yet',
+  'acc.pumpDetails': 'Pump details',
+  'acc.pumpAccounts': 'Accounts at this pump',
+  'acc.retirePumpHint':
+    'Keeps every shift, slip and record exactly as it is — just stops anybody signing in here until this is undone.',
   'nav.counter': 'Counter',
 
   'common.save': 'Save',
@@ -137,6 +141,7 @@ export const en = {
   'common.total': 'Total',
   'common.amount': 'Amount',
   'common.litres': 'Litres',
+  'common.kg': 'Kilograms',
   'common.quantity': 'Quantity',
   'common.rate': 'Rate',
   'common.notes': 'Notes',
@@ -327,6 +332,8 @@ export const en = {
   'cust.addVehicle': 'Add vehicle',
   'cust.vehicleNo': 'Vehicle number',
   'cust.ledger': 'Account history',
+  'cust.everythingTaken': 'Everything taken',
+  'cust.everythingTakenHint': 'Every purchase this customer has made, udhaar or paid — not just what is owed',
   'cust.byAge': 'What is owed, by how long it has been owed',
   'cust.withinMonth': 'Within the month',
   'cust.oneToTwo': '1\u20132 months',
@@ -336,6 +343,7 @@ export const en = {
   'cust.lastSale': 'Last purchase',
   'cust.lastPayment': 'Last payment',
   'cust.noCustomers': 'No credit customers yet',
+  'cust.oneTime': 'One-time',
 
   'inv.title': 'Bills',
   'inv.new': 'Make a bill',
@@ -619,7 +627,10 @@ export const en = {
   'counter.openingSub':
     'Copied in from whoever closed last \u2014 nothing to do here, just worth seeing.',
   'counter.openingNotSet': 'Not set yet',
-  'counter.openingNotSetHint': 'No shift has closed this one before. It will be set when this shift closes.',
+  'counter.openingNotSetHint':
+    'No shift has closed this one before — type what it shows right now.',
+  'counter.openingType': 'What it shows now',
+  'counter.saveOpening': 'Save the opening',
   'counter.saveReading': 'Save the reading',
   'counter.hissab': "This shift's hissab",
   'counter.wentOut': 'Went out of the pump',
@@ -696,11 +707,19 @@ export const en = {
   'counter.fix': 'Fix',
   'counter.noBalanceHere':
     'A slip belongs to the shift it was written in and to the filler who served the lorry. What the customer already owes is the office’s business, so it is not shown here.',
+  'counter.howPaid': 'How is this paid',
+  'counter.onUdhaarMode': 'On udhaar',
+  'counter.paidNow': 'Paid now',
   'counter.whoIsTaking': 'Who is taking it',
   'counter.searchCustomer': 'Type a few letters of the name',
   'counter.noCustomersYet':
     'No customers are added yet \u2014 ask the office to add them under Customers.',
   'counter.noMatchingCustomer': 'No customer matches that',
+  'counter.walkinPrompt': "Can't find them? Write a name instead",
+  'counter.walkinPlaceholder': "Customer's name",
+  'counter.walkinHint':
+    'The office will see this flagged as a one-time customer, not mixed into the regular list.',
+  'counter.walkinCancel': 'Search the list instead',
   'counter.whichLorry': 'Which lorry',
   'counter.whichFuel': 'Which fuel',
   'counter.orRupees': 'or Rupees',
@@ -876,6 +895,10 @@ export const gu: Record<DictKey, string> = {
   'acc.ownersManagers': 'માલિક · મેનેજર',
   'acc.counterSet': 'કાઉન્ટર ડિવાઇસ સેટ થયું',
   'acc.counterMissing': 'હજી કાઉન્ટર ડિવાઇસ નથી',
+  'acc.pumpDetails': 'પંપની વિગતો',
+  'acc.pumpAccounts': 'આ પંપના એકાઉન્ટ',
+  'acc.retirePumpHint':
+    'દરેક શિફ્ટ, સ્લિપ અને રેકોર્ડ જેમનું તેમ રહે છે — ફક્ત અહીં કોઈ લોગિન કરી શકશે નહીં, જ્યાં સુધી આ પાછું ના ફેરવાય.',
   'nav.counter': 'કાઉન્ટર',
 
   'common.save': 'સાચવો',
@@ -892,6 +915,7 @@ export const gu: Record<DictKey, string> = {
   'common.total': 'કુલ',
   'common.amount': 'રકમ',
   'common.litres': 'લિટર',
+  'common.kg': 'કિલોગ્રામ',
   'common.quantity': 'જથ્થો',
   'common.rate': 'ભાવ',
   'common.notes': 'નોંધ',
@@ -1082,6 +1106,8 @@ export const gu: Record<DictKey, string> = {
   'cust.addVehicle': 'વાહન ઉમેરો',
   'cust.vehicleNo': 'વાહન નંબર',
   'cust.ledger': 'ખાતાની વિગત',
+  'cust.everythingTaken': 'બધું લીધેલું',
+  'cust.everythingTakenHint': 'આ ગ્રાહકે લીધેલી દરેક ખરીદી, ઉધાર કે રોકડ — ફક્ત બાકી હોય તે નહીં',
   'cust.byAge': 'કેટલા સમયથી બાકી છે',
   'cust.withinMonth': 'આ મહિનામાં',
   'cust.oneToTwo': '1–2 મહિના',
@@ -1091,6 +1117,7 @@ export const gu: Record<DictKey, string> = {
   'cust.lastSale': 'છેલ્લી ખરીદી',
   'cust.lastPayment': 'છેલ્લી ચુકવણી',
   'cust.noCustomers': 'હજી કોઈ ઉધાર ગ્રાહક નથી',
+  'cust.oneTime': 'એક વખતનું',
 
   'inv.title': 'બિલ',
   'inv.new': 'બિલ બનાવો',
@@ -1374,7 +1401,9 @@ export const gu: Record<DictKey, string> = {
   'counter.openingSub':
     'છેલ્લે જેણે બંધ કર્યું તેમાંથી આપોઆપ આવ્યું \u2014 અહીં કંઈ કરવાનું નથી, બસ જોઈ લો.',
   'counter.openingNotSet': 'હજી નક્કી નથી',
-  'counter.openingNotSetHint': 'આના પહેલાં કોઈ શિફ્ટ બંધ થઈ નથી. આ શિફ્ટ બંધ થશે ત્યારે નક્કી થશે.',
+  'counter.openingNotSetHint': 'આના પહેલાં કોઈ શિફ્ટ બંધ થઈ નથી — અત્યારે મીટર પર જે હોય તે લખો.',
+  'counter.openingType': 'અત્યારે શું બતાવે છે',
+  'counter.saveOpening': 'શરૂઆત સાચવો',
   'counter.saveReading': 'રીડિંગ સાચવો',
   'counter.hissab': 'આ શિફ્ટનો હિસાબ',
   'counter.wentOut': 'પંપમાંથી ગયું',
@@ -1456,11 +1485,19 @@ export const gu: Record<DictKey, string> = {
   'counter.fix': 'સુધારો',
   'counter.noBalanceHere':
     'સ્લિપ જે શિફ્ટમાં લખાઈ તેની અને જેણે ભર્યું તેની છે. ગ્રાહકનું કેટલું બાકી છે તે ઑફિસનું કામ છે, અહીં દેખાતું નથી.',
+  'counter.howPaid': 'કેવી રીતે ચૂકવ્યું',
+  'counter.onUdhaarMode': 'ઉધાર પર',
+  'counter.paidNow': 'હમણાં ચૂકવ્યું',
   'counter.whoIsTaking': 'કોને આપવાનું છે',
   'counter.searchCustomer': 'નામના થોડા અક્ષર લખો',
   'counter.noCustomersYet':
     'હજુ કોઈ ગ્રાહક ઉમેર્યા નથી \u2014 ઑફિસને Customers હેઠળ ઉમેરવા કહો.',
   'counter.noMatchingCustomer': 'આ નામ સાથે કોઈ ગ્રાહક મળતું નથી',
+  'counter.walkinPrompt': 'નથી મળતા? નામ લખો',
+  'counter.walkinPlaceholder': 'ગ્રાહકનું નામ',
+  'counter.walkinHint':
+    'ઑફિસને આ એક વખતના ગ્રાહક તરીકે દેખાશે, નિયમિત યાદીમાં ભળશે નહીં.',
+  'counter.walkinCancel': 'યાદીમાંથી શોધો',
   'counter.whichLorry': 'કઈ ગાડી',
   'counter.whichFuel': 'કયું ફ્યુઅલ',
   'counter.orRupees': 'અથવા રૂપિયા',

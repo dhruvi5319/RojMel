@@ -10,21 +10,24 @@ import { useLang, useT } from '@/lib/i18n/client'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatDateLong, formatTime, money, quantity } from '@/lib/format'
 import type {
-  CreditSale, FuelRate, FuelType, NozzleState, Shift, ShiftCashDenomination,
-  ShiftCollection, ShiftFiller, ShiftMeter, Staff, UserRole, Vehicle,
+  CashSale, CreditSale, FuelRate, FuelType, NozzleState, Shift,
+  ShiftCashDenomination, ShiftCollection, ShiftFiller, ShiftMeter, Staff,
+  UserRole, Vehicle,
 } from '@/lib/database.types'
 import { LanguageSeg } from '@/components/AppNav'
 import { Alert, Badge, Button, Field, Input, NumberInput, Select } from '@/components/ui'
 import { rosterIncludes, SHIFTS, shiftHours, shiftLabel, type ShiftHours } from '@/lib/shifts'
 import {
-  addFillerToShift, counterSlip, finishShift, removeFillerFromShift,
-  reopenShift as reopenShiftAction, saveCashCount, saveMeterReading,
-  saveShiftPayments, startShift, updateSlip, type CounterResult,
+  addFillerToShift, counterCashSale, counterSlip, finishShift,
+  removeFillerFromShift, reopenShift as reopenShiftAction, saveCashCount,
+  saveMeterReading, saveShiftOpening, saveShiftPayments, startShift,
+  updateCashSale, updateSlip, type CounterResult,
 } from './actions'
 
 export interface CounterCustomer {
   id: string
   name: string
+  is_walkin: boolean
 }
 
 /** A shift with enough of its day on it to be chosen from a list. */
@@ -81,6 +84,7 @@ export function CounterApp({
   initialMeterTab,
   fillers,
   slips,
+  cashSales,
   collections,
   denominations,
   shiftMoney,
@@ -114,6 +118,8 @@ export function CounterApp({
   initialMeterTab: 'opening' | 'closing'
   fillers: ShiftFiller[]
   slips: CreditSale[]
+  /** a named customer's purchase paid in full on the spot — not udhaar */
+  cashSales: CashSale[]
   collections: ShiftCollection[]
   /** every filler's cash, by note and coin, for the shift being looked at */
   denominations: ShiftCashDenomination[]
@@ -130,7 +136,9 @@ export function CounterApp({
   const [meterTab, setMeterTab] = useState<'opening' | 'closing'>(initialMeterTab)
   const [tab, setTab] = useState<Tab>('shift')
   const [error, setError] = useState<string | null>(null)
-  const [editing, setEditing] = useState<CreditSale | null>(null)
+  const [editing, setEditing] = useState<CreditSale | CashSale | null>(null)
+  /** which table the slip being fixed (or written new) belongs to */
+  const [editingMode, setEditingMode] = useState<'udhaar' | 'cash'>('udhaar')
 
   /*
    * Where to land travelled in the address so it could survive moving shift.
@@ -456,6 +464,9 @@ export function CounterApp({
             () => setView('home'),
           )
         }
+        onSaveOpening={(nozzleRows, cngRows) =>
+          run(() => saveShiftOpening(shift.id, nozzleRows, cngRows))
+        }
       />
     )
   } else if (view === 'slip') {
@@ -463,10 +474,12 @@ export function CounterApp({
       <SlipForm
         shift={shift}
         slip={editing}
+        mode={editingMode}
         customers={customers}
         vehicles={vehicles}
         fuels={fuels}
         nozzles={nozzles}
+        rates={rates}
         fillers={fillers}
         staff={staff}
         nameOf={nameOf}
@@ -475,21 +488,28 @@ export function CounterApp({
           setEditing(null)
           setView('home')
         }}
-        onSubmit={(payload, id) =>
+        onSubmit={(payload, mode, id) =>
           run(
-            () =>
-              id
-                ? updateSlip(id, {
-                    customer_id: payload.customer_id,
-                    vehicle_id: payload.vehicle_id,
-                    fuel_type_id: payload.fuel_type_id,
-                    quantity: payload.quantity,
-                    sale_rate: payload.sale_rate,
-                    slip_number: payload.slip_number,
-                    driver_name: payload.driver_name,
-                    staff_id: payload.staff_id,
-                  })
-                : counterSlip(payload),
+            () => {
+              const patch = {
+                customer_id: payload.customer_id,
+                walkin_name: payload.walkin_name,
+                vehicle_id: payload.vehicle_id,
+                fuel_type_id: payload.fuel_type_id,
+                quantity: payload.quantity,
+                sale_rate: payload.sale_rate,
+                slip_number: payload.slip_number,
+                driver_name: payload.driver_name,
+                staff_id: payload.staff_id,
+              }
+              return mode === 'cash'
+                ? id
+                  ? updateCashSale(id, patch)
+                  : counterCashSale(payload)
+                : id
+                  ? updateSlip(id, patch)
+                  : counterSlip(payload)
+            },
             () => {
               setEditing(null)
               setTab('udhaar')
@@ -551,6 +571,7 @@ export function CounterApp({
     screen = (
       <SlipList
         slips={slips}
+        cashSales={cashSales}
         customers={customers}
         fuels={fuels}
         staff={staff}
@@ -562,10 +583,12 @@ export function CounterApp({
         elsewhere={elsewhere}
         onWrite={() => {
           setEditing(null)
+          setEditingMode('udhaar')
           setView('slip')
         }}
-        onFix={(slip) => {
+        onFix={(slip, mode) => {
           setEditing(slip)
+          setEditingMode(mode)
           setView('slip')
         }}
         onBackToRunning={() => runningNow && goToShift(runningNow.id)}
@@ -1287,6 +1310,7 @@ function MeterSheet({
   pending,
   onBack,
   onSave,
+  onSaveOpening,
 }: {
   meters: ShiftMeter[]
   tab: 'opening' | 'closing'
@@ -1295,6 +1319,10 @@ function MeterSheet({
   pending: boolean
   onBack: () => void
   onSave: (
+    nozzles: { nozzle_id: string; reading: string }[],
+    cng: { dispenser_id: string; reading: string }[],
+  ) => void
+  onSaveOpening: (
     nozzles: { nozzle_id: string; reading: string }[],
     cng: { dispenser_id: string; reading: string }[],
   ) => void
@@ -1307,6 +1335,12 @@ function MeterSheet({
         m.closing_reading != null ? String(m.closing_reading) : '',
       ]),
     ),
+  )
+  /* Typed only for a meter with nothing to inherit — the one scenario this
+     ever shows up in, a brand new nozzle or the pump's very first shift. */
+  const [openingV, setOpeningV] = useState<Record<string, string>>({})
+  const openingDirty = meters.some(
+    (m) => m.opening_reading == null && (openingV[m.meter_id] ?? '').trim() !== '',
   )
 
   /* What this meter read when the shift began — inherited from whatever the
@@ -1384,25 +1418,60 @@ function MeterSheet({
                     <div className="text-[16px] font-semibold">{m.name}</div>
                     <div className="text-[12.5px] text-neutral-700">{m.fuel_name}</div>
                   </div>
-                  <div className="shrink-0 text-right">
-                    {m.opening_reading != null ? (
-                      <span className="tabular text-[20px] font-bold">
-                        {Number(m.opening_reading).toFixed(2)}
-                      </span>
-                    ) : (
-                      <span className="text-[13px] font-semibold text-accent-800">
-                        {t('counter.openingNotSet')}
-                      </span>
-                    )}
-                  </div>
+                  {m.opening_reading != null ? (
+                    <span className="tabular shrink-0 text-right text-[20px] font-bold">
+                      {Number(m.opening_reading).toFixed(2)}
+                    </span>
+                  ) : (
+                    <div className="w-[9.5rem] shrink-0">
+                      <NumberInput
+                        step="0.001"
+                        disabled={locked}
+                        placeholder={t('counter.openingNotSet')}
+                        aria-label={`${t('counter.openingType')} — ${m.name}`}
+                        className="py-2.5 text-right text-[18px] font-bold"
+                        value={openingV[m.meter_id] ?? ''}
+                        onChange={(e) =>
+                          setOpeningV((prev) => ({ ...prev, [m.meter_id]: e.target.value }))
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
 
             {meters.some((m) => m.opening_reading == null) ? (
-              <p className="mt-3 px-1 text-[13px] leading-relaxed text-neutral-700">
-                {t('counter.openingNotSetHint')}
-              </p>
+              <>
+                <p className="mt-3 px-1 text-[13px] leading-relaxed text-neutral-700">
+                  {t('counter.openingNotSetHint')}
+                </p>
+                <div className="mt-3">
+                  <Button
+                    size="lg"
+                    className="w-full"
+                    disabled={pending || !openingDirty || locked}
+                    onClick={() =>
+                      onSaveOpening(
+                        meters
+                          .filter((m) => m.kind === 'nozzle' && m.opening_reading == null)
+                          .map((m) => ({
+                            nozzle_id: m.meter_id,
+                            reading: openingV[m.meter_id] ?? '',
+                          })),
+                        meters
+                          .filter((m) => m.kind === 'cng' && m.opening_reading == null)
+                          .map((m) => ({
+                            dispenser_id: m.meter_id,
+                            reading: openingV[m.meter_id] ?? '',
+                          })),
+                      )
+                    }
+                  >
+                    {pending ? t('common.saving') : t('counter.saveOpening')}
+                  </Button>
+                </div>
+              </>
             ) : null}
           </>
         ) : (
@@ -1506,8 +1575,15 @@ function MeterSheet({
 }
 
 /* ---------------------------------------------------------- the slips -- */
+/** Either ledger, one shape to render — which table a row came from decides
+    what happens when it is fixed and whether it says "Paid" beside it. */
+type SlipRow =
+  | { mode: 'udhaar'; data: CreditSale }
+  | { mode: 'cash'; data: CashSale }
+
 function SlipList({
   slips,
+  cashSales,
   customers,
   fuels,
   staff,
@@ -1523,6 +1599,8 @@ function SlipList({
   onStart,
 }: {
   slips: CreditSale[]
+  /** a named customer's purchase paid in full on the spot — not udhaar */
+  cashSales: CashSale[]
   customers: CounterCustomer[]
   fuels: FuelType[]
   staff: Staff[]
@@ -1535,12 +1613,16 @@ function SlipList({
   elsewhere: boolean
   nameOf: (s: { name: string; name_gu?: string | null }) => string
   onWrite: () => void
-  onFix: (slip: CreditSale) => void
+  onFix: (slip: CreditSale | CashSale, mode: 'udhaar' | 'cash') => void
   onBackToRunning: () => void
   onStart: () => void
 }) {
   const t = useT()
   const total = slips.reduce((sum, s) => sum + Number(s.amount), 0)
+  const rows: SlipRow[] = [
+    ...slips.map((data) => ({ mode: 'udhaar' as const, data })),
+    ...cashSales.map((data) => ({ mode: 'cash' as const, data })),
+  ].sort((a, b) => (a.data.created_at < b.data.created_at ? 1 : -1))
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? '—'
   const fuelOf = (id: string) => fuels.find((f) => f.id === id)
   const servedBy = (id: string | null) => {
@@ -1583,24 +1665,31 @@ function SlipList({
       )}
 
       <div className="rounded-[var(--radius-card)] bg-surface px-4.5 py-1">
-        {slips.length === 0 ? (
+        {rows.length === 0 ? (
           <p className="py-5 text-center text-[14px] text-neutral-700">
             {t('counter.noSlipsYet')}
           </p>
         ) : (
-          slips.map((slip, i) => {
+          rows.map((row, i) => {
+            const slip = row.data
             const fuel = fuelOf(slip.fuel_type_id)
             const who = servedBy(slip.staff_id)
+            const billed = row.mode === 'udhaar' && Boolean(row.data.invoice_id)
             return (
               <div
                 key={slip.id}
                 className={`flex gap-3 py-3.5 ${
-                  i === slips.length - 1 ? '' : 'border-b border-neutral-300'
+                  i === rows.length - 1 ? '' : 'border-b border-neutral-300'
                 }`}
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[17px] font-semibold">
                     {customerName(slip.customer_id)}
+                    {row.mode === 'cash' ? (
+                      <span className="ml-1.5 align-middle">
+                        <Badge tone="ok">{t('counter.paidNow')}</Badge>
+                      </span>
+                    ) : null}
                   </div>
                   <div className="tabular mt-0.5 truncate text-[13px] text-neutral-700">
                     {slip.vehicle_number ? `${slip.vehicle_number} · ` : ''}
@@ -1617,12 +1706,12 @@ function SlipList({
                 </div>
                 <div className="shrink-0 text-right">
                   <div className="tabular text-[19px] font-bold">{money(slip.amount)}</div>
-                  {locked || slip.invoice_id ? null : (
+                  {locked || billed ? null : (
                     <Button
                       size="sm"
                       variant="secondary"
                       className="mt-1.5"
-                      onClick={() => onFix(slip)}
+                      onClick={() => onFix(slip, row.mode)}
                     >
                       {t('counter.fix')}
                     </Button>
@@ -1645,10 +1734,12 @@ function SlipList({
 function SlipForm({
   shift,
   slip,
+  mode: initialMode,
   customers,
   vehicles,
   fuels,
   nozzles,
+  rates,
   fillers,
   staff,
   nameOf,
@@ -1658,28 +1749,42 @@ function SlipForm({
 }: {
   shift: ShiftDigest
   /** the slip being put right, or none for a new one */
-  slip: CreditSale | null
+  slip: CreditSale | CashSale | null
+  /** udhaar or paid in full — fixed once written, chosen fresh for a new one */
+  mode: 'udhaar' | 'cash'
   customers: CounterCustomer[]
   vehicles: Vehicle[]
   fuels: FuelType[]
   nozzles: NozzleState[]
+  /** every fuel's rate, nozzle or not — the only source that also covers CNG */
+  rates: FuelRate[]
   fillers: ShiftFiller[]
   staff: Staff[]
   nameOf: (s: { name: string; name_gu?: string | null }) => string
   pending: boolean
   onBack: () => void
-  onSubmit: (payload: Parameters<typeof counterSlip>[0], id?: string) => void
+  onSubmit: (
+    payload: Parameters<typeof counterSlip>[0],
+    mode: 'udhaar' | 'cash',
+    id?: string,
+  ) => void
 }) {
   const t = useT()
+  const [mode, setMode] = useState<'udhaar' | 'cash'>(initialMode)
 
   // Default to a fuel that actually has a price; one without a rate cannot be
   // sold and would only produce an error after everything had been typed.
+  // Reads off rates, not nozzles — a nozzle is petrol or diesel only, and a
+  // fuel picker built from it can never offer CNG, udhaar or not.
   const priced = fuels.filter((f) =>
-    nozzles.some((z) => z.fuel_type_id === f.id && Number(z.sale_rate) > 0),
+    rates.some((r) => r.fuel_type_id === f.id && Number(r.sale_rate) > 0),
   )
 
   const [search, setSearch] = useState('')
   const [customerId, setCustomerId] = useState(slip?.customer_id ?? '')
+  /** typing a name on the spot, for a lorry not yet on the customer list */
+  const [walkin, setWalkin] = useState(false)
+  const [walkinName, setWalkinName] = useState('')
   const [vehicleId, setVehicleId] = useState(slip?.vehicle_id ?? '')
   const [fuelId, setFuelId] = useState(
     slip?.fuel_type_id ?? (priced[0] ?? fuels[0])?.id ?? '',
@@ -1696,8 +1801,11 @@ function SlipForm({
   // that moved since must not quietly reprice yesterday's fuel.
   const rate = useMemo(() => {
     if (slip && slip.fuel_type_id === fuelId) return Number(slip.sale_rate)
-    return Number(nozzles.find((z) => z.fuel_type_id === fuelId)?.sale_rate ?? 0)
-  }, [fuelId, nozzles, slip])
+    return Number(rates.find((r) => r.fuel_type_id === fuelId)?.sale_rate ?? 0)
+  }, [fuelId, rates, slip])
+  /** Petrol and diesel are litres; CNG is kilograms — the box asking for one
+      has to say which, or a filler reading "Litres" types kg into it. */
+  const fuelUnit = rates.find((r) => r.fuel_type_id === fuelId)?.unit ?? 'L'
 
   const chosen = customers.find((c) => c.id === customerId)
   const matches = search.trim()
@@ -1727,6 +1835,34 @@ function SlipForm({
 
       <div className="flex flex-col gap-3.5 px-4">
         <div>
+          <span className="mb-1.5 block text-[14px] font-bold text-neutral-800">
+            {t('counter.howPaid')}
+          </span>
+          {slip ? (
+            <Badge tone={mode === 'cash' ? 'ok' : 'accent'}>
+              {mode === 'cash' ? t('counter.paidNow') : t('counter.onUdhaarMode')}
+            </Badge>
+          ) : (
+            <div className="flex gap-2">
+              {(['udhaar', 'cash'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  className={`flex-1 rounded-2xl px-2 py-3.5 text-[16px] transition ${
+                    mode === m
+                      ? 'bg-accent-700 font-bold text-bg'
+                      : 'border border-divider font-semibold text-neutral-800'
+                  }`}
+                >
+                  {m === 'cash' ? t('counter.paidNow') : t('counter.onUdhaarMode')}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
           <label
             htmlFor="counter-customer"
             className="mb-1.5 block text-[14px] font-bold text-neutral-800"
@@ -1738,6 +1874,7 @@ function SlipForm({
               <span className="min-w-0 flex-1 truncate text-[19px] font-semibold">
                 {chosen.name}
               </span>
+              {chosen.is_walkin ? <Badge tone="accent">{t('cust.oneTime')}</Badge> : null}
               <Button
                 size="sm"
                 variant="secondary"
@@ -1750,6 +1887,31 @@ function SlipForm({
                 {t('common.change')}
               </Button>
             </div>
+          ) : walkin ? (
+            <>
+              <Input
+                id="counter-customer"
+                value={walkinName}
+                autoComplete="off"
+                autoFocus
+                placeholder={t('counter.walkinPlaceholder')}
+                className="py-3.5 text-[17px]"
+                onChange={(e) => setWalkinName(e.target.value)}
+              />
+              <p className="mt-2 text-[13px] leading-snug text-neutral-700">
+                {t('counter.walkinHint')}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setWalkin(false)
+                  setWalkinName('')
+                }}
+                className="mt-2 py-1 text-[14px] font-semibold text-accent-700"
+              >
+                {t('counter.walkinCancel')}
+              </button>
+            </>
           ) : (
             <>
               <Input
@@ -1795,6 +1957,19 @@ function SlipForm({
                   {t('counter.noMatchingCustomer')}
                 </p>
               ) : null}
+              {/* The office manages the regular list; this is the counter's
+                  one way round a lorry nobody has added yet — a name typed
+                  now, flagged for the office rather than quietly merged in. */}
+              <button
+                type="button"
+                onClick={() => {
+                  setWalkin(true)
+                  setSearch('')
+                }}
+                className="mt-2 py-1 text-[14px] font-semibold text-accent-700"
+              >
+                {t('counter.walkinPrompt')}
+              </button>
             </>
           )}
         </div>
@@ -1849,7 +2024,7 @@ function SlipForm({
         </div>
 
         <div className="grid grid-cols-2 gap-2.5">
-          <Field label={t('common.litres')} required>
+          <Field label={t(fuelUnit === 'kg' ? 'common.kg' : 'common.litres')} required>
             <NumberInput
               step="0.01"
               value={litres}
@@ -1925,18 +2100,20 @@ function SlipForm({
                 <Input value={driver} onChange={(e) => setDriver(e.target.value)} />
               </Field>
             </div>
-            <Field label={t('set.nozzles')}>
-              <Select value={nozzleId} onChange={(e) => setNozzleId(e.target.value)}>
-                <option value="">—</option>
-                {nozzles
-                  .filter((z) => z.fuel_type_id === fuelId)
-                  .map((z) => (
-                    <option key={z.nozzle_id} value={z.nozzle_id}>
-                      {z.name}
-                    </option>
-                  ))}
-              </Select>
-            </Field>
+            {fuelUnit === 'L' ? (
+              <Field label={t('set.nozzles')}>
+                <Select value={nozzleId} onChange={(e) => setNozzleId(e.target.value)}>
+                  <option value="">—</option>
+                  {nozzles
+                    .filter((z) => z.fuel_type_id === fuelId)
+                    .map((z) => (
+                      <option key={z.nozzle_id} value={z.nozzle_id}>
+                        {z.name}
+                      </option>
+                    ))}
+                </Select>
+              </Field>
+            ) : null}
           </div>
         ) : (
           <button
@@ -1962,11 +2139,17 @@ function SlipForm({
           <Button
             size="lg"
             className="w-full rounded-t-md rounded-b-[22px]"
-            disabled={pending || !customerId || n(litres) <= 0 || rate <= 0}
+            disabled={
+              pending ||
+              (!customerId && !walkinName.trim()) ||
+              n(litres) <= 0 ||
+              rate <= 0
+            }
             onClick={() =>
               onSubmit(
                 {
-                  customer_id: customerId,
+                  customer_id: customerId || null,
+                  walkin_name: customerId ? null : walkinName.trim() || null,
                   vehicle_id: vehicleId || null,
                   fuel_type_id: fuelId,
                   nozzle_id: nozzleId || null,
@@ -1978,6 +2161,7 @@ function SlipForm({
                   business_date: slip?.business_date ?? shift.business_date,
                   shift_id: shift.id,
                 },
+                mode,
                 slip?.id,
               )
             }

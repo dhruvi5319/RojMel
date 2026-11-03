@@ -17,7 +17,7 @@ import { deleteCreditSale } from './actions'
 export const dynamic = 'force-dynamic'
 
 interface Row extends CreditSale {
-  customers: { name: string } | null
+  customers: { name: string; is_walkin: boolean } | null
   fuel_types: { name: string; unit: 'L' | 'kg' } | null
   /** which half of the day this slip counts toward */
   shifts: { name: string } | null
@@ -35,7 +35,7 @@ export default async function CreditPage({
 
   const { data } = await supabase
     .from('credit_sales')
-    .select('*, customers(name), fuel_types(name, unit), shifts(name)')
+    .select('*, customers(name, is_walkin), fuel_types(name, unit), shifts(name)')
     .eq('business_date', date)
     .order('created_at', { ascending: false })
 
@@ -105,6 +105,11 @@ export default async function CreditPage({
                     >
                       {r.customers?.name ?? '—'}
                     </Link>
+                    {r.customers?.is_walkin ? (
+                      <span className="ml-2">
+                        <Badge tone="accent">{t('cust.oneTime')}</Badge>
+                      </span>
+                    ) : null}
                     {r.slip_number ? (
                       <div className="text-sm text-neutral-600">#{r.slip_number}</div>
                     ) : null}

@@ -2,8 +2,8 @@ import { requireSession } from '@/lib/auth'
 import { createClient } from '@/lib/supabase/server'
 import { businessDateAt, shiftAt } from '@/lib/shifts'
 import type {
-  CreditSale, FuelRate, FuelType, NozzleState, Shift, ShiftCashDenomination,
-  ShiftCollection, ShiftFiller, ShiftMeter, Staff, Vehicle,
+  CashSale, CreditSale, FuelRate, FuelType, NozzleState, Shift,
+  ShiftCashDenomination, ShiftCollection, ShiftFiller, ShiftMeter, Staff, Vehicle,
 } from '@/lib/database.types'
 import { CounterApp, type CounterCustomer, type ShiftDigest } from './CounterApp'
 
@@ -63,7 +63,7 @@ export default async function CounterPage({
       supabase.from('fuel_types').select('*').eq('is_active', true).order('sort_order'),
       // The counter's RLS returns nothing from the balances view, so it falls
       // back to plain customer rows and simply shows no money.
-      supabase.from('customers').select('id, name').eq('is_active', true).order('name'),
+      supabase.from('customers').select('id, name, is_walkin').eq('is_active', true).order('name'),
       supabase.from('vehicles').select('*').eq('is_active', true).order('vehicle_number'),
       supabase
         .from('shifts')
@@ -80,8 +80,10 @@ export default async function CounterPage({
   const ids = shifts.map((s) => s.id)
 
   // Enough of every shift in reach to fill the picker: what went out, what of
-  // it was on udhaar, and who worked it.
-  const [readRes, cngRes, slipsRes, fillersRes] = ids.length
+  // it was on udhaar, and who worked it. cash_sales rides along the same way
+  // credit_sales does, but never into sold/udhaar below — it is already
+  // inside the meter total, and owes nothing.
+  const [readRes, cngRes, slipsRes, cashSalesRes, fillersRes] = ids.length
     ? await Promise.all([
         supabase.from('nozzle_readings').select('shift_id, amount').in('shift_id', ids),
         supabase.from('cng_readings').select('shift_id, amount').in('shift_id', ids),
@@ -90,13 +92,19 @@ export default async function CounterPage({
           .select('*')
           .in('shift_id', ids)
           .order('created_at', { ascending: false }),
+        supabase
+          .from('cash_sales')
+          .select('*')
+          .in('shift_id', ids)
+          .order('created_at', { ascending: false }),
         supabase.from('v_shift_fillers').select('*').in('shift_id', ids).order('name'),
       ])
-    : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }]
+    : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }]
 
   const reads = (readRes.data ?? []) as { shift_id: string; amount: number }[]
   const cng = (cngRes.data ?? []) as { shift_id: string; amount: number }[]
   const slips = (slipsRes.data ?? []) as CreditSale[]
+  const cashSales = (cashSalesRes.data ?? []) as CashSale[]
   const fillers = (fillersRes.data ?? []) as ShiftFiller[]
 
   const digests: ShiftDigest[] = shifts.map((s) => ({
@@ -197,6 +205,7 @@ export default async function CounterPage({
       initialMeterTab={initialMeterTab}
       fillers={current ? fillers.filter((f) => f.shift_id === current.id) : []}
       slips={current ? slips.filter((s) => s.shift_id === current.id) : []}
+      cashSales={current ? cashSales.filter((s) => s.shift_id === current.id) : []}
       collections={collections}
       denominations={denominations}
       shiftMoney={{ card, upi, bpcl }}

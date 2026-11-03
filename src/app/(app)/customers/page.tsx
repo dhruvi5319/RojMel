@@ -131,6 +131,11 @@ export default async function CustomersPage({
                       >
                         {c.name}
                       </Link>
+                      {c.is_walkin ? (
+                        <span className="ml-2">
+                          <Badge tone="accent">{t('cust.oneTime')}</Badge>
+                        </span>
+                      ) : null}
                       {c.phone ? (
                         <div className="text-sm text-neutral-600">{c.phone}</div>
                       ) : null}

@@ -179,6 +179,7 @@ export interface Customer {
   is_active: boolean
   notes: string | null
   created_at: string
+  is_walkin: boolean
 }
 
 export interface Vehicle {
@@ -230,6 +231,31 @@ export interface CreditSale {
   /** generated: quantity * sale_rate */
   amount: number
   invoice_id: string | null
+  created_by: string | null
+  created_at: string
+}
+
+/**
+ * A named customer's purchase, paid in full on the spot — not udhaar. Owes
+ * nothing, bills nothing; exists only so the customer's own history shows
+ * it, same shape as CreditSale minus invoice_id and odometer.
+ */
+export interface CashSale {
+  id: string
+  station_id: string
+  business_date: string
+  shift_id: string | null
+  customer_id: string
+  vehicle_id: string | null
+  vehicle_number: string | null
+  fuel_type_id: string
+  nozzle_id: string | null
+  staff_id: string | null
+  slip_number: string | null
+  driver_name: string | null
+  quantity: number
+  sale_rate: number
+  amount: number
   created_by: string | null
   created_at: string
 }
@@ -414,6 +440,7 @@ export interface CustomerBalance {
   unbilled_slips: number
   last_sale_date: string | null
   last_payment_date: string | null
+  is_walkin: boolean
 }
 
 /** view: v_tank_stock */

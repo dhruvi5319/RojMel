@@ -1417,6 +1417,163 @@ await check('counter: an udhaar slip, and the slips written this shift', async (
   if (!/43\.00 L/.test(await body())) throw new Error('the slip was GONE after a reload')
 })
 
+await check('counter: a walk-in customer, typed on the spot', async () => {
+  await counter()
+  await page.getByRole('button', { name: 'Udhaar slip', exact: true }).first().click()
+  await page.waitForTimeout(800)
+
+  // Nobody has added this lorry — the office is not open, and the sale
+  // cannot wait for it to be.
+  await page.locator('button', { hasText: "Can't find them" }).click()
+  await page.waitForTimeout(300)
+  if (!(await body()).includes('one-time customer')) {
+    throw new Error('writing a name down does not say it will be flagged')
+  }
+
+  await page.locator('input#counter-customer').fill('Walk-in Carrier 998877')
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: /^Petrol$/ }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('input[type=number]').first().fill('12')
+  await page.waitForTimeout(300)
+  await page.getByRole('button', { name: 'Ramesh', exact: true }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: 'Write the slip' }).first().click()
+  await page.waitForTimeout(3500)
+
+  if (!(await body()).includes('Walk-in Carrier 998877')) {
+    throw new Error('the walk-in slip did not land on the shift\'s udhaar')
+  }
+
+  // The same name again must reuse the row, not fail on it or fork it —
+  // the unique (station_id, name) constraint would otherwise error at a
+  // filler who has no idea what that means.
+  await page.locator('button', { hasText: 'Write a slip' }).first().click()
+  await page.waitForTimeout(600)
+  await page.locator('button', { hasText: "Can't find them" }).click()
+  await page.waitForTimeout(300)
+  await page.locator('input#counter-customer').fill('Walk-in Carrier 998877')
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: /^Diesel$/ }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('input[type=number]').first().fill('5')
+  await page.waitForTimeout(300)
+  await page.getByRole('button', { name: 'Ramesh', exact: true }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: 'Write the slip' }).first().click()
+  await page.waitForTimeout(3500)
+  if (!(await body()).includes('Walk-in Carrier 998877')) {
+    throw new Error('writing the same name again did not go through')
+  }
+
+  // It reaches the office, flagged — never silently merged into the regular
+  // list, and never invisible either.
+  await login('manager@test.in')
+  await page.goto(`${BASE}/credit`, { waitUntil: 'load' })
+  await page.waitForTimeout(700)
+  if (!(await body()).includes('Walk-in Carrier 998877')) {
+    throw new Error('the walk-in slip does not reach the office credit page')
+  }
+  if (!(await body()).includes('One-time')) {
+    throw new Error('the office is not told this is a one-time customer')
+  }
+
+  await page.goto(`${BASE}/customers?q=Walk-in Carrier`, { waitUntil: 'load' })
+  await page.waitForTimeout(700)
+  if (!(await body()).includes('One-time')) {
+    throw new Error('the customer list does not flag the walk-in either')
+  }
+  await login('counter@test.in')
+})
+
+await check('counter: an udhaar slip for CNG, in kilograms', async () => {
+  await counter()
+  await page.getByRole('button', { name: 'Udhaar slip', exact: true }).first().click()
+  await page.waitForTimeout(800)
+
+  // CNG is a fuel like any other, so the picker that only ever offered
+  // Petrol and Diesel was reading the fuel list off the nozzles — which
+  // CNG, having no nozzle, can never appear in.
+  if (!(await body()).includes('CNG')) {
+    throw new Error('CNG does not appear as a fuel on the udhaar slip')
+  }
+
+  await page.locator('input#counter-customer').fill('Shree')
+  await page.waitForTimeout(500)
+  await page.locator('button', { hasText: /^Shree/ }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: /^CNG$/ }).first().click()
+  await page.waitForTimeout(300)
+
+  // Petrol and diesel are litres; CNG is kilograms, and the box asking for
+  // the quantity has to say which, or a filler reading "Litres" types the
+  // wrong unit into it.
+  if (!(await body()).includes('Kilograms')) {
+    throw new Error('the quantity box still says Litres once CNG is picked')
+  }
+  // The nozzle field makes no sense for CNG — there is no nozzle, only a
+  // dispenser — so it is not offered at all rather than shown empty.
+  await page.locator('button', { hasText: 'Slip number, driver, nozzle' }).click()
+  await page.waitForTimeout(300)
+  if ((await page.locator('select').count()) > 0) {
+    throw new Error('a nozzle picker is still offered for a CNG slip')
+  }
+
+  await page.locator('input[type=number]').first().fill('8')
+  await page.waitForTimeout(300)
+  await page.getByRole('button', { name: 'Ramesh', exact: true }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: 'Write the slip' }).first().click()
+  await page.waitForTimeout(3500)
+
+  if (!/8\.00 kg/.test(await body())) {
+    throw new Error(`the CNG slip did not land on the shift's udhaar: ${await body()}`)
+  }
+})
+
+await check('counter: a customer paying cash is tracked, but it is not udhaar', async () => {
+  await counter()
+  const before = (await body()).match(/Udhaar this shift\n.*?· (\d+) ·/)?.[1]
+
+  await page.getByRole('button', { name: 'Udhaar slip', exact: true }).first().click()
+  await page.waitForTimeout(800)
+  await page.locator('button', { hasText: 'Paid now' }).click()
+  await page.waitForTimeout(300)
+  await page.locator('input#counter-customer').fill('Shree')
+  await page.waitForTimeout(500)
+  await page.locator('button', { hasText: /^Shree/ }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: /^Petrol$/ }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('input[type=number]').first().fill('6')
+  await page.waitForTimeout(300)
+  await page.getByRole('button', { name: 'Ramesh', exact: true }).first().click()
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: 'Write the slip' }).first().click()
+  await page.waitForTimeout(3500)
+
+  const t = await body()
+  if (!/6\.00 L/.test(t) || !/Paid now/.test(t)) {
+    throw new Error(`the cash sale did not land on the shift's list, flagged: ${t.slice(0, 300)}`)
+  }
+
+  // It shows in the list, but the udhaar count beside the title — the one
+  // the shift's own hissab is built from — must not have moved.
+  const after = (await body()).match(/Udhaar this shift\n.*?· (\d+) ·/)?.[1]
+  if (before !== undefined && after !== undefined && before !== after) {
+    throw new Error(`a cash sale changed the udhaar count: ${before} -> ${after}`)
+  }
+
+  // Fixing it keeps it a cash sale — the choice is not offered again once
+  // written, only shown back.
+  await page.locator('button', { hasText: /^Fix$/ }).first().click()
+  await page.waitForTimeout(700)
+  if (!/Paid now/.test(await body())) {
+    throw new Error('fixing a cash sale does not show it is still a cash sale')
+  }
+  await page.locator('button[aria-label="Back"]').click()
+})
+
 await check('counter: a slip written wrong is the filler’s to put right', async () => {
   await counter()
   await tab('Udhaar')
@@ -1773,6 +1930,84 @@ await checkAsOwner('audit: the trail shows who changed what', async () => {
     if (!t2.includes(w)) throw new Error(`audit trail missing "${w}"`)
   }
   if (!/Manager|Father/.test(t2)) throw new Error('audit trail names nobody')
+})
+
+/**
+ * The super admin's own three: a pump is made, then came back to — edited,
+ * a lost password handed back, retired and restored — all without touching
+ * the data underneath it.
+ */
+const adminPumpName = `E2E Admin Pump ${STAMP}`
+const adminOwnerEmail = `admin-owner-${STAMP}@e2e.test`
+const adminOwnerNewPassword = 'e2eAdminReset1'
+
+await check('admin: super admin creates a pump and its owner', async () => {
+  await login('super@test.in')
+  await page.goto(`${BASE}/admin`, { waitUntil: 'load' })
+  await page.getByRole('button', { name: 'Add a pump and its owner' }).click()
+  await page.fill('input[name=name]', adminPumpName)
+  await page.fill('input[name=city]', 'Rajkot')
+  await page.fill('input[name=owner_name]', `E2E Admin Owner ${STAMP}`)
+  await page.fill('input[name=owner_email]', adminOwnerEmail)
+  await page.fill('input[name=owner_password]', 'pumpbook123')
+  await page.getByRole('button', { name: 'Add a pump and its owner' }).last().click()
+  await reflects(adminPumpName)
+})
+
+await check('admin: editing a pump’s details shows without a reload, survives one', async () => {
+  await page.getByRole('button', { name: `Edit ${adminPumpName}` }).click()
+  await page.waitForTimeout(300)
+  await page.fill('input[name=city]', 'Jamnagar')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await reflects('Jamnagar')
+})
+
+await check('admin: resets a pump account’s forgotten password', async () => {
+  await page.getByRole('button', { name: `Edit ${adminPumpName}` }).click()
+  await page.waitForTimeout(300)
+  await page.getByRole('button', { name: new RegExp(adminOwnerEmail) }).click()
+  await page.fill('input[name=password]', adminOwnerNewPassword)
+  await page.getByRole('button', { name: 'Set a new password' }).click()
+  await page.waitForTimeout(1500)
+  await login(adminOwnerEmail, adminOwnerNewPassword)
+  if (!/Today|Settings/i.test(await body())) {
+    throw new Error('the reset password did not sign the owner in')
+  }
+})
+
+await check('admin: retiring a pump locks its owner out, restoring hands it back', async () => {
+  await login('super@test.in')
+  await page.goto(`${BASE}/admin`, { waitUntil: 'load' })
+  const row = () => page.locator('tr').filter({ hasText: adminPumpName }).first()
+
+  await row().getByRole('button', { name: 'Remove' }).click()
+  await page.waitForTimeout(500)
+  if (!/Removed/.test(await row().innerText())) {
+    throw new Error('the pump did not show as removed without a reload')
+  }
+  await page.reload()
+  await page.waitForLoadState('load')
+  if (!/Removed/.test(await row().innerText())) {
+    throw new Error('the pump forgot it was retired after a reload')
+  }
+
+  await login(adminOwnerEmail, adminOwnerNewPassword, { expectIn: false })
+  if (!/no longer has access to a pump/.test(await body())) {
+    throw new Error('a retired pump’s own owner was still let in')
+  }
+
+  await login('super@test.in')
+  await page.goto(`${BASE}/admin`, { waitUntil: 'load' })
+  await row().getByRole('button', { name: 'Let back in' }).click()
+  await page.waitForTimeout(500)
+  if (/Removed/.test(await row().innerText())) {
+    throw new Error('restoring the pump left it showing removed')
+  }
+
+  await login(adminOwnerEmail, adminOwnerNewPassword)
+  if (!/Today|Settings/i.test(await body())) {
+    throw new Error('restoring the pump did not give its owner back their access')
+  }
 })
 
 // Last, once nothing else needs them: retire the filler this run invented,
